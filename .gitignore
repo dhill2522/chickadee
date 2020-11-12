@@ -1,0 +1,5 @@
+.vscode/
+**.py[cod]
+*.egg-info/
+**/IPOPT.out
+**/__pycache__/
