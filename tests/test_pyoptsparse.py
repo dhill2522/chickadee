@@ -7,7 +7,8 @@ electricity = chickadee.Resource('electricity')
 
 load = chickadee.TimeSeries()
 
-smr = chickadee.Component('smr', 600, steam, None, -1.0, produces=steam, dispatch_type='fixed')
+smr = chickadee.PyOptSparseComponent('smr', 600, 10000, steam, None, -1.0,
+                                produces=steam, dispatch_type='fixed')
 
 
 def turbine_transfer(data, meta):
@@ -26,16 +27,18 @@ def turbine_transfer(data, meta):
     return data, meta
 
 
-turbine = chickadee.Component('turbine', 1000, electricity, turbine_transfer, -1.0,
-                                produces=electricity, consumes=steam)
+turbine = chickadee.PyOptSparseComponent('turbine', 1000, 100, electricity,
+                                turbine_transfer, -1.0, produces=electricity,
+                                consumes=steam)
 
 
 def el_market_transfer(data, meta):
     return data, meta
 
 
-el_market = chickadee.Component('el_market', 1e10, electricity, el_market_transfer, 5.0,
-                                consumes=electricity, dispatch_type='fixed')
+el_market = chickadee.PyOptSparseComponent('el_market', 1e10, 1e10, electricity,
+                                el_market_transfer, 5.0, consumes=electricity,
+                                dispatch_type='fixed')
 
 dispatcher = chickadee.PyOptSparse(window_length=5)
 
@@ -44,5 +47,8 @@ time_horizon = np.linspace(0, 1, 10)
 optimal_dispatch = dispatcher.dispatch(comps, time_horizon, [load])
 print(optimal_dispatch)
 
-plt.plot(optimal_dispatch.state['time'], optimal_dispatch.state['turbine'][electricity])
+ramp = np.diff(optimal_dispatch.state['turbine'][electricity])
+
+plt.plot(optimal_dispatch.state['time'], optimal_dispatch.state['turbine'][electricity], label='El gen')
+plt.plot(optimal_dispatch.state['time'][:-1], ramp, label='Ramp rate')
 plt.show()

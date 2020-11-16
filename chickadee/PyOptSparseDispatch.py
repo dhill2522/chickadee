@@ -1,4 +1,6 @@
 from .Dispatcher import Dispatcher
+from .Component import PyOptSparseComponent
+from .TimeSeries import TimeSeries
 
 import pyoptsparse
 import numpy as np
@@ -6,12 +8,13 @@ import sys
 import os
 import time as time_lib
 import traceback
+from typing import List
 from itertools import chain
 from pprint import pformat
 
 class DispatchState(object):
     '''Modeled after idaholab/HERON NumpyState object'''
-    def __init__(self, components, time):
+    def __init__(self, components: List[PyOptSparseComponent], time: List[float]):
         s = {
             'time': time
         }
@@ -45,8 +48,6 @@ class DispatchState(object):
 
     def __repr__(self):
         return pformat(self.state)
-
-
 
 
 class PyOptSparse(Dispatcher):
@@ -145,7 +146,6 @@ class PyOptSparse(Dispatcher):
         #   6) Run the optimization and handle failed/unfeasible runs
         #   7) Set the activities on each of the components and return the result
 
-        print('\n\n\n\nDEBUG: pyOptSparse dispatcher')
         resources = [c.get_resources() for c in self.components]
         self.resources = list(set(chain.from_iterable(resources)))
         self.start_time = time_lib.time()
@@ -168,10 +168,16 @@ class PyOptSparse(Dispatcher):
 
         win_start_i = 0
         win_i = 0
+        prev_win_end_i = 0
         while win_start_i < len(self.time):
             win_end_i = win_start_i + self._window_length
             if win_end_i > len(self.time):
                 win_end_i = len(self.time)
+
+            # If the end time has not changed, then exit
+            if win_end_i == prev_win_end_i:
+                break
+
             print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
 
             win_horizon = self.time[win_start_i:win_end_i]
@@ -184,11 +190,12 @@ class PyOptSparse(Dispatcher):
                         win_dispatch.get_activity(comp, res)
                     )
 
+            # Increment the window indexes
+            prev_win_end_i = win_end_i
             win_i += 1
-            win_start_i = win_end_i
 
-            if win_i > 10:
-                break
+            # This results in time windows that match up, but do not overlap
+            win_start_i = win_end_i - 1
 
         return full_dispatch
 
@@ -225,7 +232,9 @@ class PyOptSparse(Dispatcher):
             # Run the resource pool constraints
             things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
             things['window_overlap'] = []
-            # FIXME: Nothing is here to verify ramp rates!
+            for comp in self.components:
+                if comp.dispatch_type != 'fixed':
+                    things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
             return things, False
 
         # Step 5) Assemble the parts for the optimizer function
@@ -233,10 +242,14 @@ class PyOptSparse(Dispatcher):
             print('Step 5) Setting up pyOptSparse',
               time_lib.time() - self.start_time)
         optProb = pyoptsparse.Optimization('Dispatch', optimize_me)
-        for comp, bounds in self.vs.items():
-            # FIXME: will need to find a way of generating the guess values
-            optProb.addVarGroup(comp, len(time_window), 'c',
-                                value=-1, lower=bounds[0], upper=bounds[1])
+        for comp in self.components:
+            if comp.dispatch_type != 'fixed':
+                bounds = self.vs[comp.name]
+                # FIXME: will need to find a way of generating the guess values
+                optProb.addVarGroup(comp.name, len(time_window), 'c',
+                                    value=-1, lower=bounds[0], upper=bounds[1])
+                optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
+                                lower=-comp.ramp_rate, upper=comp.ramp_rate)
         optProb.addConGroup('resource_balance', len(
             pool_cons), lower=0, upper=0)
         # if win_i != 0:
@@ -269,10 +282,18 @@ class PyOptSparse(Dispatcher):
             print('\nReturning the results', time_lib.time() - self.start_time)
         return win_opt_dispatch
 
-    def dispatch(self, components, time, tdep):
+    def dispatch(self, components: List[PyOptSparseComponent],
+                    time: List[float], timeSeries: List[TimeSeries] = []):
+        """Optimally dispatch a given set of components over a time horizon
+        using a list of TimeSeries
+
+        :param components: List of components to dispatch
+        :param time: time horizon to dispatch the components over
+        :param timeSeries: list of TimeSeries objects needed for the dispatch
+        """
         self.components = components
         self.time = time
-        self.tdep = tdep
+        self.timeSeries = timeSeries
         return self._dispatch_pool()
 
 # Questions:
