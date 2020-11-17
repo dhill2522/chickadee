@@ -27,13 +27,13 @@ class DispatchState(object):
         self.state = s
         self.time = time
 
-    def set_activity(self, component, resource, activity, i=None):
+    def set_activity(self, component: PyOptSparseComponent, resource, activity, i=None):
         if i is None:
             self.state[component.name][resource] = activity
         else:
             self.state[component.name][resource][i] = activity
 
-    def get_activity(self, component, resource, i=None):
+    def get_activity(self, component: PyOptSparseComponent, resource, i=None):
         try:
             if i is None:
                 return self.state[component.name][resource]
@@ -43,7 +43,7 @@ class DispatchState(object):
             print(i)
             raise err
 
-    def set_activity_vector(self, component, resource, start, end, activity):
+    def set_activity_vector(self, component: PyOptSparseComponent, resource, start, end, activity):
         self.state[component.name][resource][start:end] = activity
 
     def __repr__(self):
@@ -113,20 +113,17 @@ class PyOptSparse(Dispatcher):
         # Dispatch the fixed components
         fixed_comps = [c for c in self.components if c.dispatch_type == 'fixed']
         for f in fixed_comps:
-            capacity = f.capacity
-            vals = np.ones(len(time)) * capacity
-            dispatch.set_activity(f, f.capacity_resource, vals)
+            dispatch.set_activity(f, f.capacity_resource, f.capacity)
         # Dispatch the independent and dependent components using the vars
         disp_comps = [
             c for c in self.components if c.dispatch_type != 'fixed']
         for d in disp_comps:
             for i in range(len(time)):
                 request = {d.capacity_resource: opt_vars[d.name][i]}
-                bal, meta = d.transfer(request, {})
+                bal, _ = d.transfer(request, None)
                 for res, value in bal.items():
                     dispatch.set_activity(d, res, value, i)
-
-        return dispatch, meta
+        return dispatch
 
     def _dispatch_pool(self):
         # Steps:
@@ -157,14 +154,18 @@ class PyOptSparse(Dispatcher):
                 # Fixed dispatch components do not contribute to the variables
                 continue
             else:  # Independent and dependent dispatch
-                self.vs[c.name] = {}
                 # FIXME: get real min capacity
-                self.vs[c.name] = [0, c.capacity]
-                self.vs[c.name].sort()  # The max capacities are often negative
+                lower = np.zeros(len(c.capacity))
+                upper = c.capacity
+                # Note: This assumes everything based off the first point
+                if lower[0] < upper[0]:
+                    self.vs[c.name] = [lower, upper]
+                else:
+                    self.vs[c.name] = [upper, lower]
 
         full_dispatch = DispatchState(self.components, self.time)
 
-        # FIXME: Add constraints to ensure that the windows overlap
+        # FIXME: Add constraints to ensure that the ramp constraints are met across windows
 
         win_start_i = 0
         win_i = 0
@@ -196,17 +197,14 @@ class PyOptSparse(Dispatcher):
 
             # This results in time windows that match up, but do not overlap
             win_start_i = win_end_i - 1
-
         return full_dispatch
 
-        # return self._dispatch_window(time_horizon, 1)
-
-    def _dispatch_window(self, time_window, win_i, verbose=False):
-        if verbose:
+    def _dispatch_window(self, time_window, win_i):
+        if self.verbose:
             print('Dispatching window', win_i)
 
         # Step 2) Build the resource pool constraint functions
-        if verbose:
+        if self.verbose:
             print('Step 2) Build the resource pool constraints',
               time_lib.time() - self.start_time)
         pool_cons = self._build_pool_cons()
@@ -215,30 +213,33 @@ class PyOptSparse(Dispatcher):
         # this is taken into account by "determining the dispatch"
 
         # Step 4) Set up the objective function as the double integral of the incremental dispatch
-        if verbose:
+        if self.verbose:
             print('Step 4) Assembling the big function',
               time_lib.time() - self.start_time)
 
-        def objective(stuff):
-            return 10
+        def objective(dispatch):
+            '''The objective function. It is broken out to allow for scaling.'''
+            obj = 0
+            for c in self.components:
+                obj += c.cost_function(dispatch.state[c.name])
+            return obj
 
         def optimize_me(stuff):
             # nonlocal meta
-            dispatch, self.meta = self.determine_dispatch(stuff, time_window)
+            dispatch = self.determine_dispatch(stuff, time_window)
             # At this point the dispatch should be fully determined, so assemble the return object
             things = {}
             # Dispatch the components to generate the obj val
-            things['objective'] = objective(stuff)
+            things['objective'] = objective(dispatch)
             # Run the resource pool constraints
             things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
-            things['window_overlap'] = []
             for comp in self.components:
                 if comp.dispatch_type != 'fixed':
                     things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
             return things, False
 
         # Step 5) Assemble the parts for the optimizer function
-        if verbose:
+        if self.verbose:
             print('Step 5) Setting up pyOptSparse',
               time_lib.time() - self.start_time)
         optProb = pyoptsparse.Optimization('Dispatch', optimize_me)
@@ -246,6 +247,7 @@ class PyOptSparse(Dispatcher):
             if comp.dispatch_type != 'fixed':
                 bounds = self.vs[comp.name]
                 # FIXME: will need to find a way of generating the guess values
+                print(comp.name, comp.ramp_rate)
                 optProb.addVarGroup(comp.name, len(time_window), 'c',
                                     value=-1, lower=bounds[0], upper=bounds[1])
                 optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
@@ -257,33 +259,38 @@ class PyOptSparse(Dispatcher):
         optProb.addObj('objective')
 
         # Step 6) Run the optimization
-        if verbose:
+        if self.verbose:
             print('Step 6) Running the dispatch optimization',
               time_lib.time() - self.start_time)
         try:
             opt = pyoptsparse.OPT('IPOPT')
             sol = opt(optProb, sens='CD')
             # print(sol)
-            if verbose:
+            print('fStar', optimize_me(sol.xStar))
+            if self.verbose:
                 print('Dispatch optimization successful')
         except Exception as err:
             print('Dispatch optimization failed:')
             traceback.print_exc()
             raise err
+        if self.verbose:
+            print('Step 6.5) Completed the dispatch optimization',
+                  time_lib.time() - self.start_time)
 
         # Step 7) Set the activities on each component
-        if verbose:
+        if self.verbose:
             print('\nCompleted dispatch process\n\n\n')
 
-        win_opt_dispatch, self.meta = self.determine_dispatch(
+        win_opt_dispatch = self.determine_dispatch(
             sol.xStar, time_window)
-        if verbose:
+        if self.verbose:
             print(f'Optimal dispatch for win {win_i}:', win_opt_dispatch)
             print('\nReturning the results', time_lib.time() - self.start_time)
         return win_opt_dispatch
 
     def dispatch(self, components: List[PyOptSparseComponent],
-                    time: List[float], timeSeries: List[TimeSeries] = []):
+                    time: List[float], timeSeries: List[TimeSeries] = [],
+                    verbose=False):
         """Optimally dispatch a given set of components over a time horizon
         using a list of TimeSeries
 
@@ -291,8 +298,10 @@ class PyOptSparse(Dispatcher):
         :param time: time horizon to dispatch the components over
         :param timeSeries: list of TimeSeries objects needed for the dispatch
         """
+        # FIXME: Should checkto make sure that the components have arrays of the right length
         self.components = components
         self.time = time
+        self.verbose = verbose
         self.timeSeries = timeSeries
         return self._dispatch_pool()
 
