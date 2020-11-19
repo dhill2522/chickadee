@@ -56,7 +56,6 @@ class PyOptSparse(Dispatcher):
     '''
 
     def __init__(self, window_length=10):
-        print('PyOptDispatch:__init__')
         self.name = 'PyOptSparseDispatcher'
         self._window_length = window_length
 
@@ -64,7 +63,7 @@ class PyOptSparse(Dispatcher):
         self.components = None
         self.case = None
 
-    def __gen_pool_cons(self, res):
+    def _gen_pool_cons(self, res):
         '''A closure for generating a pool constraint for a resource'''
 
         def pool_cons(dispatch_window: DispatchState):
@@ -78,7 +77,7 @@ class PyOptSparse(Dispatcher):
 
             # FIXME: This is an inefficient way of doing this. Find a better way
             cs = [c for c in self.components if res in c.get_resources()]
-            for i, t in enumerate(time):
+            for i, _ in enumerate(time):
                 for c in cs:
                     err[i] += dispatch_window.get_activity(c, res, i)
 
@@ -86,7 +85,7 @@ class PyOptSparse(Dispatcher):
             # are likely much better ways of handling this.
             # Maybe have a constraint for the resource at each point in time?
             # Maybe use the storage components as slack variables?
-            return sum(err)
+            return sum(err**2)
 
         return pool_cons
 
@@ -97,7 +96,7 @@ class PyOptSparse(Dispatcher):
         cons = []
         for res in self.resources:
             # Generate the pool constraint here
-            pool_cons = self.__gen_pool_cons(res)
+            pool_cons = self._gen_pool_cons(res)
             cons.append(pool_cons)
         return cons
 
@@ -230,13 +229,15 @@ class PyOptSparse(Dispatcher):
             # At this point the dispatch should be fully determined, so assemble the return object
             things = {}
             # Dispatch the components to generate the obj val
-            things['objective'] = objective(dispatch)
+            things['objective'] = -objective(dispatch)
             # Run the resource pool constraints
             things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
             for comp in self.components:
                 if comp.dispatch_type != 'fixed':
                     things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
+            print('stuff', things['objective'], things['resource_balance'])
             return things, False
+        self.objective = optimize_me
 
         # Step 5) Assemble the parts for the optimizer function
         if self.verbose:
@@ -249,13 +250,11 @@ class PyOptSparse(Dispatcher):
                 # FIXME: will need to find a way of generating the guess values
                 print(comp.name, comp.ramp_rate)
                 optProb.addVarGroup(comp.name, len(time_window), 'c',
-                                    value=-1, lower=bounds[0], upper=bounds[1])
+                                    value=comp.guess, lower=bounds[0], upper=bounds[1])
                 optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
                                 lower=-comp.ramp_rate, upper=comp.ramp_rate)
         optProb.addConGroup('resource_balance', len(
             pool_cons), lower=0, upper=0)
-        # if win_i != 0:
-        #   optProb.addConGroup('window_overlap', len())
         optProb.addObj('objective')
 
         # Step 6) Run the optimization

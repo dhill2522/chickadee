@@ -46,7 +46,8 @@ class Component(object):
 class PyOptSparseComponent(Component):
     def __init__(self, name: str, capacity: List[float], ramp_rate: List[float],
                 capacity_resource: Resource, transfer: Callable, cost_function: Callable,
-                produces=None, consumes=None, stores=None, dispatch_type: str='independent'):
+                produces=None, consumes=None, stores=None, dispatch_type: str='independent',
+                guess: List[float]=None):
         """A Component compatible with the PyOptSparse dispatcher
         :param name: Name of the component. Used in representing dispatches
         :param capacity: Maximum capacity of the component in terms of `capacity_resource`
@@ -57,10 +58,16 @@ class PyOptSparseComponent(Component):
         :param consumes: a list of resources consumed by the component
         :param stores: a list of resources stored by the component
         :param dispatch_type: the dispatch type of the component
+        :param guess: a guess at the optimal dispatch of the unit in terms of its `capacity_resource`. Defaults to the capacity.
         """
         super(PyOptSparseComponent, self).__init__(name, capacity, capacity_resource,
                                                 transfer, 0.0, produces, consumes,
                                                 stores, dispatch_type)
+
+        if guess is None:
+            self.guess = self.capacity
+        else:
+            self.guess = guess
 
         self.ramp_rate = ramp_rate
         self.cost_function = cost_function

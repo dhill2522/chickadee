@@ -3,3 +3,4 @@
 *.egg-info/
 **/IPOPT.out
 **/__pycache__/
+**/log.log
