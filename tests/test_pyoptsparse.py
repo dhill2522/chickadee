@@ -2,8 +2,8 @@ import chickadee
 import numpy as np
 import matplotlib.pyplot as plt
 
-n = 10 # number of time points
-time_horizon = np.linspace(0, 1, n)
+n = 120 # number of time points
+time_horizon = np.linspace(0, 10 , n)
 
 steam = chickadee.Resource('steam')
 electricity = chickadee.Resource('electricity')
@@ -18,7 +18,7 @@ def smr_transfer(data, meta):
 
 
 smr_capacity = np.ones(n)*1200
-smr_ramp = 600
+smr_ramp = 600*np.ones(n)
 smr_guess = 100*np.sin(time_horizon) + 300
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, steam,
                                 smr_transfer, smr_cost, produces=steam, guess=smr_guess)
@@ -44,7 +44,7 @@ def turbine_cost(dispatch):
 
 turbine_capacity = np.ones(n)*1000
 turbine_guess = 100*np.sin(time_horizon) + 500
-turbine_ramp = 100
+turbine_ramp = 100*np.ones(n)
 turbine = chickadee.PyOptSparseComponent('turbine', turbine_capacity,
                                 turbine_ramp, electricity,
                                 turbine_transfer, turbine_cost,
@@ -59,7 +59,7 @@ def elm_cost(dispatch):
 
 # elm_capacity = np.ones(n)*-800
 elm_capacity = -(100*np.sin(time_horizon) + 500)
-elm_ramp = np.ones(n)*1e10
+elm_ramp = 1e10*np.ones(n)
 elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp,
                                 electricity, el_market_transfer, elm_cost,
                                 consumes=electricity, dispatch_type='fixed')

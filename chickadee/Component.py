@@ -1,6 +1,8 @@
 from .Resource import Resource
 
 from typing import List, Callable
+import numpy as np
+
 
 class Component(object):
     def __init__(self, name, capacity, capacity_resource, transfer, econ_param, produces=None, consumes=None, stores=None,
@@ -44,10 +46,10 @@ class Component(object):
 
 
 class PyOptSparseComponent(Component):
-    def __init__(self, name: str, capacity: List[float], ramp_rate: List[float],
+    def __init__(self, name: str, capacity: np.ndarray, ramp_rate: np.ndarray,
                 capacity_resource: Resource, transfer: Callable, cost_function: Callable,
                 produces=None, consumes=None, stores=None, dispatch_type: str='independent',
-                guess: List[float]=None):
+                guess: np.ndarray=None):
         """A Component compatible with the PyOptSparse dispatcher
         :param name: Name of the component. Used in representing dispatches
         :param capacity: Maximum capacity of the component in terms of `capacity_resource`
@@ -64,9 +66,19 @@ class PyOptSparseComponent(Component):
                                                 transfer, 0.0, produces, consumes,
                                                 stores, dispatch_type)
 
+        if type(capacity) is not np.ndarray:
+            raise TypeError(
+                'PyOptSparseComponent capacity must be a numpy array')
+        if type(ramp_rate) is not np.ndarray:
+            raise TypeError(
+                'PyOptSparseComponent ramp_rate must be a numpy array')
+
         if guess is None:
             self.guess = self.capacity
         else:
+            if type(guess) is not np.ndarray:
+                raise TypeError(
+                    'PyOptSparseComponent guess must be a numpy array')
             self.guess = guess
 
         self.ramp_rate = ramp_rate

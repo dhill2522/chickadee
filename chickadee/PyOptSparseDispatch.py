@@ -52,7 +52,7 @@ class DispatchState(object):
 
 class PyOptSparse(Dispatcher):
     '''
-    Dispatch using pyOptSparse optimization package
+    Dispatch using pyOptSparse optimization package and a pool-based method.
     '''
 
     def __init__(self, window_length=10):
@@ -63,23 +63,28 @@ class PyOptSparse(Dispatcher):
         self.components = None
         self.case = None
 
-    def _gen_pool_cons(self, res):
-        '''A closure for generating a pool constraint for a resource'''
+    def _gen_pool_cons(self, resource):
+        '''A closure for generating a pool constraint for a resource
+        :param resource: the resource to evaluate
+        :returns: a function representing the pool constraint
+        '''
 
         def pool_cons(dispatch_window: DispatchState):
             '''A resource pool constraint
-
-            Ensures that the net amount of a resource being consumed, produced and
-            stored is zero. Inteded to '''
+            Checks that the net amount of a resource being consumed, produced and
+            stored is zero.
+            :param dispatch_window: the dispatch to evaluate
+            :returns: SSE of resource constraint violations
+            '''
             time = dispatch_window.time
             n = len(time)
             err = np.zeros(n)
 
             # FIXME: This is an inefficient way of doing this. Find a better way
-            cs = [c for c in self.components if res in c.get_resources()]
+            cs = [c for c in self.components if resource in c.get_resources()]
             for i, _ in enumerate(time):
                 for c in cs:
-                    err[i] += dispatch_window.get_activity(c, res, i)
+                    err[i] += dispatch_window.get_activity(c, resource, i)
 
             # FIXME: This simply returns the sum of the errors over time. There
             # are likely much better ways of handling this.
@@ -91,7 +96,8 @@ class PyOptSparse(Dispatcher):
 
     def _build_pool_cons(self):
         '''Build the pool constraints
-        Returns a list of `pool_cons` functions, one for each resource.'''
+        :returns: List[Callable] a list of pool constraints, one for each resource
+        '''
 
         cons = []
         for res in self.resources:
@@ -100,19 +106,21 @@ class PyOptSparse(Dispatcher):
             cons.append(pool_cons)
         return cons
 
-    def determine_dispatch(self, opt_vars, time):
+    def determine_dispatch(self, opt_vars: dict, time: List[float], start_i, end_i):
         '''Determine the dispatch from a given set of optimization
         vars by running the transfer functions. Returns a Numpy dispatch
         object
-        @ In, opt_vars, dict, holder for all the optimization variables
-        @ In, time, list, time horizon to dispatch over
+        :param opt_vars: dict, holder for all the optimization variables
+        :param time: list, time horizon to dispatch over
+        :returns: DispatchState, dispatch of the system
         '''
         # Initialize the dispatch
         dispatch = DispatchState(self.components, time)
         # Dispatch the fixed components
         fixed_comps = [c for c in self.components if c.dispatch_type == 'fixed']
         for f in fixed_comps:
-            dispatch.set_activity(f, f.capacity_resource, f.capacity)
+            dispatch.set_activity(f, f.capacity_resource,
+                                  f.capacity[start_i:end_i])
         # Dispatch the independent and dependent components using the vars
         disp_comps = [
             c for c in self.components if c.dispatch_type != 'fixed']
@@ -125,22 +133,26 @@ class PyOptSparse(Dispatcher):
         return dispatch
 
     def _dispatch_pool(self):
-        # Steps:
-        #   1) Assemble all the vars into a vars dict
-        #     A set of vars for each dispatchable component including storage elements
-        #     include bound constraints
-        #   2) Build the pool constraint functions
-        #     Should have one constraint function for each pool
-        #     Each constraint will be a function of all the vars
-        #   3) Assemble the transfer function constraints
-        #   4) Set up the objective function as the double integral of the incremental dispatch
-        #   5) Assemble the parts for the optimizer function
-        #     a) Declare the variables
-        #     b) Declare the constraints
-        #     c) Declare the objective function
-        #     d) set the optimization configuration (IPOPT/SNOPT, CS/FD...)
-        #   6) Run the optimization and handle failed/unfeasible runs
-        #   7) Set the activities on each of the components and return the result
+        '''Dispatch the given system using a resource-pool method
+        :returns: DispatchState, the optimal dispatch of the system
+
+         Steps:
+           - Assemble all the vars into a vars dict
+             A set of vars for each dispatchable component including storage elements
+             include bound constraints
+           - For each time window
+               1) Build the pool constraint functions
+                   Should have one constraint function for each pool
+                   Each constraint will be a function of all the vars
+               2) Set up the objective function as the double integral of the incremental dispatch
+               3) Formulate the problem for pyOptSparse
+                   a) Declare the variables
+                   b) Declare the constraints
+                   c) Declare the objective function
+                   d) set the optimization configuration (IPOPT/SNOPT, CS/FD...)
+               4) Run the optimization and handle failed/unfeasible runs
+               5) Set the activities on each of the components and return the result
+        '''
 
         resources = [c.get_resources() for c in self.components]
         self.resources = list(set(chain.from_iterable(resources)))
@@ -181,10 +193,16 @@ class PyOptSparse(Dispatcher):
             print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
 
             win_horizon = self.time[win_start_i:win_end_i]
-            win_dispatch = self._dispatch_window(win_horizon, win_i)
+            if self.verbose:
+                print('Dispatching window', win_i)
+            win_dispatch = self._dispatch_window(win_horizon, win_start_i, win_end_i)
+            if self.verbose:
+                print(f'Optimal dispatch for win {win_i}:', win_dispatch)
 
             for comp in self.components:
                 for res in comp.get_resources():
+                    print(comp.name, res, len(
+                        win_dispatch.get_activity(comp, res)))
                     full_dispatch.set_activity_vector(
                         comp, res, win_start_i, win_end_i,
                         win_dispatch.get_activity(comp, res)
@@ -198,66 +216,77 @@ class PyOptSparse(Dispatcher):
             win_start_i = win_end_i - 1
         return full_dispatch
 
-    def _dispatch_window(self, time_window, win_i):
-        if self.verbose:
-            print('Dispatching window', win_i)
+    def _dispatch_window(self, time_window: List[float], start_i: int, end_i: int):
+        '''Dispatch a time-window using a resource-pool method
+        :param time_window: The time window to dispatch the system over
+        :returns: DispatchState, the optimal dispatch over the time_window
+        '''
 
-        # Step 2) Build the resource pool constraint functions
+        # Step 1) Build the resource pool constraint functions
         if self.verbose:
             print('Step 2) Build the resource pool constraints',
               time_lib.time() - self.start_time)
         pool_cons = self._build_pool_cons()
 
-        # Step 3) Assemble the transfer function constraints
-        # this is taken into account by "determining the dispatch"
-
-        # Step 4) Set up the objective function as the double integral of the incremental dispatch
+        # Step 2) Set up the objective function and constraint functions
         if self.verbose:
             print('Step 4) Assembling the big function',
               time_lib.time() - self.start_time)
 
-        def objective(dispatch):
-            '''The objective function. It is broken out to allow for scaling.'''
-            obj = 0
+        def objective(dispatch: DispatchState):
+            '''The objective function. It is broken out to allow for easier scaling.
+            :param dispatch: the full dispatch of the system
+            :returns: float, value of the objective function
+            '''
+            obj = 0.0
             for c in self.components:
                 obj += c.cost_function(dispatch.state[c.name])
             return obj
 
-        def optimize_me(stuff):
-            # nonlocal meta
-            dispatch = self.determine_dispatch(stuff, time_window)
-            # At this point the dispatch should be fully determined, so assemble the return object
-            things = {}
-            # Dispatch the components to generate the obj val
-            things['objective'] = -objective(dispatch)
-            # Run the resource pool constraints
-            things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
-            for comp in self.components:
-                if comp.dispatch_type != 'fixed':
-                    things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
-            print('stuff', things['objective'], things['resource_balance'])
-            return things, False
+        def optimize_me(stuff: dict):
+            '''Objective function passed to pyOptSparse
+            It returns a dict describing the values of the objective and constraint
+            functions along with a bool indicating whether an error occured.
+            :param stuff: dict of optimization vars from pyOptSparse
+            :returns: [dict, bool]
+            '''
+            try:
+                dispatch = self.determine_dispatch(stuff, time_window, start_i, end_i)
+                # At this point the dispatch should be fully determined, so assemble the return object
+                things = {}
+                # Dispatch the components to generate the obj val
+                things['objective'] = -objective(dispatch)
+                # Run the resource pool constraints
+                things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
+                for comp in self.components:
+                    if comp.dispatch_type != 'fixed':
+                        things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
+                return things, False
+            except: # If the input crashes the opjective function
+                return {}, True
         self.objective = optimize_me
 
-        # Step 5) Assemble the parts for the optimizer function
+        # Step 3) Formulate the problem for pyOptSparse
         if self.verbose:
             print('Step 5) Setting up pyOptSparse',
               time_lib.time() - self.start_time)
         optProb = pyoptsparse.Optimization('Dispatch', optimize_me)
         for comp in self.components:
             if comp.dispatch_type != 'fixed':
-                bounds = self.vs[comp.name]
+                bounds = [bnd[start_i:end_i] for bnd in self.vs[comp.name]]
                 # FIXME: will need to find a way of generating the guess values
-                print(comp.name, comp.ramp_rate)
+                guess = comp.guess[start_i:end_i]
+                ramp = comp.ramp_rate[start_i:end_i-1]
+                print(bounds[0])
                 optProb.addVarGroup(comp.name, len(time_window), 'c',
-                                    value=comp.guess, lower=bounds[0], upper=bounds[1])
+                                    value=guess, lower=bounds[0], upper=bounds[1])
                 optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
-                                lower=-comp.ramp_rate, upper=comp.ramp_rate)
+                                lower=-1*ramp, upper=ramp)
         optProb.addConGroup('resource_balance', len(
             pool_cons), lower=0, upper=0)
         optProb.addObj('objective')
 
-        # Step 6) Run the optimization
+        # Step 4) Run the optimization
         if self.verbose:
             print('Step 6) Running the dispatch optimization',
               time_lib.time() - self.start_time)
@@ -276,14 +305,12 @@ class PyOptSparse(Dispatcher):
             print('Step 6.5) Completed the dispatch optimization',
                   time_lib.time() - self.start_time)
 
-        # Step 7) Set the activities on each component
+        # Step 5) Set the activities on each component
         if self.verbose:
             print('\nCompleted dispatch process\n\n\n')
 
-        win_opt_dispatch = self.determine_dispatch(
-            sol.xStar, time_window)
+        win_opt_dispatch = self.determine_dispatch(sol.xStar, time_window, start_i, end_i)
         if self.verbose:
-            print(f'Optimal dispatch for win {win_i}:', win_opt_dispatch)
             print('\nReturning the results', time_lib.time() - self.start_time)
         return win_opt_dispatch
 
@@ -297,33 +324,16 @@ class PyOptSparse(Dispatcher):
         :param time: time horizon to dispatch the components over
         :param timeSeries: list of TimeSeries objects needed for the dispatch
         """
-        # FIXME: Should checkto make sure that the components have arrays of the right length
+        # FIXME: Should check to make sure that the components have arrays of the right length
         self.components = components
         self.time = time
         self.verbose = verbose
         self.timeSeries = timeSeries
         return self._dispatch_pool()
 
-# Questions:
-# - How should I raise exceptions? What is the raven way?
-# - Is there a suggested way of multithreading in HERON?
-# - Should I set things like meta as class members or pass them everywhere (functional vs oop)?
-# - Tried internalParrallel to true for inner and it failed to import TEAL. Any ideas?
-# - Best way of getting dispatch window length from user?
-
 # ToDo:
 # - Try priming the initial values better
 # - Calculate exact derivatives using JAX
 #   - Could use extra meta props to accomplish this
 # - Scale the obj func inputs and outputs
-# - Find a way to recover the optimal dispatch
 # - Integrate storage into the dispatch
-#   - formulate storage as a slack variable in the resource constraint
-# - Determine the analytical solution for a benchmark problem
-
-
-# Ideas
-# - may need to time the obj func call itself
-# - Could try linearizing the transfer function?
-#   - Probably not a good idea as it would severely limit the functionality of the transfer
-#   - Could be done by a researcher beforehand and used in the Pyomo dispatcher
