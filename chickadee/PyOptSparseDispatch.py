@@ -190,7 +190,8 @@ class PyOptSparse(Dispatcher):
             if win_end_i == prev_win_end_i:
                 break
 
-            print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
+            if self.verbose:
+                print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
 
             win_horizon = self.time[win_start_i:win_end_i]
             if self.verbose:
@@ -201,8 +202,6 @@ class PyOptSparse(Dispatcher):
 
             for comp in self.components:
                 for res in comp.get_resources():
-                    print(comp.name, res, len(
-                        win_dispatch.get_activity(comp, res)))
                     full_dispatch.set_activity_vector(
                         comp, res, win_start_i, win_end_i,
                         win_dispatch.get_activity(comp, res)
@@ -243,6 +242,16 @@ class PyOptSparse(Dispatcher):
                 obj += c.cost_function(dispatch.state[c.name])
             return obj
 
+        # Make an initial call to the objective function and scale it
+        init_stuff = {}
+        for comp in self.components:
+            if comp.dispatch_type != 'fixed':
+                init_stuff[comp.name] = comp.guess[start_i:end_i]
+
+        # get the initial dispatch so it can be used for scaling
+        initdp = self.determine_dispatch(init_stuff, time_window, start_i, end_i)
+        init_obj_val = objective(initdp)
+
         def optimize_me(stuff: dict):
             '''Objective function passed to pyOptSparse
             It returns a dict describing the values of the objective and constraint
@@ -255,7 +264,7 @@ class PyOptSparse(Dispatcher):
                 # At this point the dispatch should be fully determined, so assemble the return object
                 things = {}
                 # Dispatch the components to generate the obj val
-                things['objective'] = -objective(dispatch)
+                things['objective'] = -objective(dispatch)/init_obj_val
                 # Run the resource pool constraints
                 things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
                 for comp in self.components:
@@ -277,7 +286,6 @@ class PyOptSparse(Dispatcher):
                 # FIXME: will need to find a way of generating the guess values
                 guess = comp.guess[start_i:end_i]
                 ramp = comp.ramp_rate[start_i:end_i-1]
-                print(bounds[0])
                 optProb.addVarGroup(comp.name, len(time_window), 'c',
                                     value=guess, lower=bounds[0], upper=bounds[1])
                 optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
@@ -291,10 +299,8 @@ class PyOptSparse(Dispatcher):
             print('Step 6) Running the dispatch optimization',
               time_lib.time() - self.start_time)
         try:
-            opt = pyoptsparse.OPT('IPOPT')
+            opt = pyoptsparse.OPT('IPOPT', print_level=0, option_file_name='IPOPT_options.opt')
             sol = opt(optProb, sens='CD')
-            # print(sol)
-            print('fStar', optimize_me(sol.xStar))
             if self.verbose:
                 print('Dispatch optimization successful')
         except Exception as err:
@@ -332,8 +338,12 @@ class PyOptSparse(Dispatcher):
         return self._dispatch_pool()
 
 # ToDo:
-# - Try priming the initial values better
-# - Calculate exact derivatives using JAX
+# - Get it to stop printing the annoying "Using option file" comment
+# - Try priming the initial values for generic systems better
+# - Try giving it effective slack variables
+# - Calculate exact derivatives using JAX if possible
 #   - Could use extra meta props to accomplish this
+#   - Could also explicitly disable use of meta in user functions
 # - Scale the obj func inputs and outputs
 # - Integrate storage into the dispatch
+# Handle infeasible cases clearly
