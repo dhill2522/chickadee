@@ -43,7 +43,8 @@ class DispatchState(object):
             print(i)
             raise err
 
-    def set_activity_vector(self, component: PyOptSparseComponent, resource, start, end, activity):
+    def set_activity_vector(self, component: PyOptSparseComponent,
+                            resource, start, end, activity):
         self.state[component.name][resource][start:end] = activity
 
     def __repr__(self):
@@ -55,6 +56,8 @@ class PyOptSparse(Dispatcher):
     Dispatch using pyOptSparse optimization package and a pool-based method.
     '''
 
+    slack_storage_added = False # In case slack storage is added in a loop
+
     def __init__(self, window_length=10):
         self.name = 'PyOptSparseDispatcher'
         self._window_length = window_length
@@ -63,13 +66,13 @@ class PyOptSparse(Dispatcher):
         self.components = None
         self.case = None
 
-    def _gen_pool_cons(self, resource):
+    def _gen_pool_cons(self, resource) -> callable:
         '''A closure for generating a pool constraint for a resource
         :param resource: the resource to evaluate
         :returns: a function representing the pool constraint
         '''
 
-        def pool_cons(dispatch_window: DispatchState):
+        def pool_cons(dispatch_window: DispatchState) -> float:
             '''A resource pool constraint
             Checks that the net amount of a resource being consumed, produced and
             stored is zero.
@@ -94,9 +97,9 @@ class PyOptSparse(Dispatcher):
 
         return pool_cons
 
-    def _build_pool_cons(self):
+    def _build_pool_cons(self) -> List[callable]:
         '''Build the pool constraints
-        :returns: List[Callable] a list of pool constraints, one for each resource
+        :returns: List[callable] a list of pool constraints, one for each resource
         '''
 
         cons = []
@@ -106,7 +109,8 @@ class PyOptSparse(Dispatcher):
             cons.append(pool_cons)
         return cons
 
-    def determine_dispatch(self, opt_vars: dict, time: List[float], start_i, end_i):
+    def determine_dispatch(self, opt_vars: dict, time: List[float],
+                            start_i: int, end_i: int) -> DispatchState:
         '''Determine the dispatch from a given set of optimization
         vars by running the transfer functions. Returns a Numpy dispatch
         object
@@ -132,7 +136,7 @@ class PyOptSparse(Dispatcher):
                     dispatch.set_activity(d, res, value, i)
         return dispatch
 
-    def _dispatch_pool(self):
+    def _dispatch_pool(self) -> DispatchState:
         '''Dispatch the given system using a resource-pool method
         :returns: DispatchState, the optimal dispatch of the system
 
@@ -154,8 +158,6 @@ class PyOptSparse(Dispatcher):
                5) Set the activities on each of the components and return the result
         '''
 
-        resources = [c.get_resources() for c in self.components]
-        self.resources = list(set(chain.from_iterable(resources)))
         self.start_time = time_lib.time()
 
         # Step 1) Find the vars: 1 for each component input where dispatch is not fixed
@@ -215,7 +217,8 @@ class PyOptSparse(Dispatcher):
             win_start_i = win_end_i - 1
         return full_dispatch
 
-    def _dispatch_window(self, time_window: List[float], start_i: int, end_i: int):
+    def _dispatch_window(self, time_window: List[float],
+                            start_i: int, end_i: int) -> DispatchState:
         '''Dispatch a time-window using a resource-pool method
         :param time_window: The time window to dispatch the system over
         :returns: DispatchState, the optimal dispatch over the time_window
@@ -232,7 +235,7 @@ class PyOptSparse(Dispatcher):
             print('Step 4) Assembling the big function',
               time_lib.time() - self.start_time)
 
-        def objective(dispatch: DispatchState):
+        def objective(dispatch: DispatchState) -> float:
             '''The objective function. It is broken out to allow for easier scaling.
             :param dispatch: the full dispatch of the system
             :returns: float, value of the objective function
@@ -242,17 +245,19 @@ class PyOptSparse(Dispatcher):
                 obj += c.cost_function(dispatch.state[c.name])
             return obj
 
-        # Make an initial call to the objective function and scale it
-        init_stuff = {}
-        for comp in self.components:
-            if comp.dispatch_type != 'fixed':
-                init_stuff[comp.name] = comp.guess[start_i:end_i]
+        obj_scale = 1.0
+        if self.scale_objective:
+            # Make an initial call to the objective function and scale it
+            init_stuff = {}
+            for comp in self.components:
+                if comp.dispatch_type != 'fixed':
+                    init_stuff[comp.name] = comp.guess[start_i:end_i]
 
-        # get the initial dispatch so it can be used for scaling
-        initdp = self.determine_dispatch(init_stuff, time_window, start_i, end_i)
-        init_obj_val = objective(initdp)
+            # get the initial dispatch so it can be used for scaling
+            initdp = self.determine_dispatch(init_stuff, time_window, start_i, end_i)
+            obj_scale = objective(initdp)
 
-        def optimize_me(stuff: dict):
+        def optimize_me(stuff: dict) -> [dict, bool]:
             '''Objective function passed to pyOptSparse
             It returns a dict describing the values of the objective and constraint
             functions along with a bool indicating whether an error occured.
@@ -264,14 +269,14 @@ class PyOptSparse(Dispatcher):
                 # At this point the dispatch should be fully determined, so assemble the return object
                 things = {}
                 # Dispatch the components to generate the obj val
-                things['objective'] = -objective(dispatch)/init_obj_val
+                things['objective'] = -objective(dispatch)/obj_scale
                 # Run the resource pool constraints
                 things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
                 for comp in self.components:
                     if comp.dispatch_type != 'fixed':
                         things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
                 return things, False
-            except: # If the input crashes the opjective function
+            except Exception: # If the input crashes the opjective function
                 return {}, True
         self.objective = optimize_me
 
@@ -299,7 +304,7 @@ class PyOptSparse(Dispatcher):
             print('Step 6) Running the dispatch optimization',
               time_lib.time() - self.start_time)
         try:
-            opt = pyoptsparse.OPT('IPOPT', print_level=0, option_file_name='IPOPT_options.opt')
+            opt = pyoptsparse.OPT('IPOPT')
             sol = opt(optProb, sens='CD')
             if self.verbose:
                 print('Dispatch optimization successful')
@@ -320,30 +325,65 @@ class PyOptSparse(Dispatcher):
             print('\nReturning the results', time_lib.time() - self.start_time)
         return win_opt_dispatch
 
+    def gen_slack_storage_trans(self, res) -> callable:
+        def trans(data, meta):
+            return data, meta
+        return trans
+
+    def gen_slack_storage_cost(self, res) -> callable:
+        def cost(dispatch):
+            return np.sum(1e10*dispatch[res])
+        return cost
+
+    def add_slack_storage(self) -> None:
+        for res in self.resources:
+            num = 1e10*np.ones(len(self.time))
+            guess = np.zeros(len(self.time))
+
+            trans = self.gen_slack_storage_trans(res)
+            cost = self.gen_slack_storage_cost(res)
+
+            c = PyOptSparseComponent(f'{res}_slack', num, num, res, trans,
+                                        cost, stores=[res], guess=guess)
+            self.components.append(c)
+            self.slack_storage_added = True
+
     def dispatch(self, components: List[PyOptSparseComponent],
                     time: List[float], timeSeries: List[TimeSeries] = [],
-                    verbose=False):
+                    verbose: bool=False, scale_objective: bool=True,
+                    slack_storage: bool=False) -> DispatchState:
         """Optimally dispatch a given set of components over a time horizon
         using a list of TimeSeries
 
         :param components: List of components to dispatch
         :param time: time horizon to dispatch the components over
         :param timeSeries: list of TimeSeries objects needed for the dispatch
+        :param verbose: Whether to print verbose dispatch
+        :param scale_objective: Whether to scale the objective function by its initial value
+        :param slack_storage: Whether to use artificial storage components as "slack" variables
+        :returns: A dispatch-state object representing the optimal system dispatch
         """
         # FIXME: Should check to make sure that the components have arrays of the right length
         self.components = components
         self.time = time
         self.verbose = verbose
         self.timeSeries = timeSeries
+        self.scale_objective = scale_objective
+
+        resources = [c.get_resources() for c in self.components]
+        self.resources = list(set(chain.from_iterable(resources)))
+
+        if slack_storage and not self.slack_storage_added:
+            self.add_slack_storage()
+
         return self._dispatch_pool()
 
 # ToDo:
 # - Get it to stop printing the annoying "Using option file" comment
 # - Try priming the initial values for generic systems better
-# - Try giving it effective slack variables
 # - Calculate exact derivatives using JAX if possible
 #   - Could use extra meta props to accomplish this
 #   - Could also explicitly disable use of meta in user functions
 # - Scale the obj func inputs and outputs
 # - Integrate storage into the dispatch
-# Handle infeasible cases clearly
+# - Handle infeasible cases clearly
