@@ -56,3 +56,5 @@ opt_vars = {
     comp1.name: 0.5*np.ones(n),
     comp2.name: np.ones(n)
 }
+
+# FIXME: Add test of external objective function

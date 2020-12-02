@@ -1,9 +1,12 @@
+'''
+Test that storage is properly handled in Chickadee
+using the pyOpySparse dispatcher
+'''
 import chickadee
 import numpy as np
 import time
-import matplotlib.pyplot as plt
 
-n = 110 # number of time points
+n = 40 # number of time points
 time_horizon = np.linspace(0, 10 , n)
 
 steam = chickadee.Resource('steam')
@@ -11,7 +14,7 @@ electricity = chickadee.Resource('electricity')
 
 load = chickadee.TimeSeries()
 
-def smr_cost(dispatch):
+def smr_cost(dispatch) -> float:
     return sum(-0.001 * dispatch[steam])
 
 def smr_transfer(data, meta):
@@ -24,19 +27,19 @@ smr_guess = 100*np.sin(time_horizon) + 300
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, steam,
                                 smr_transfer, smr_cost, produces=steam, guess=smr_guess)
 
-# def tes_transfer(data, meta):
-#     return data, meta
+def tes_transfer(data, meta):
 
-# def tes_cost(dispatch):
-#     return sum(-0.01*np.ones(len(dispatch[steam])))
+    return data, meta
 
-# tes_capacity = 200*np.ones(n)
-# tes_ramp = 200*np.ones(n)
-# tes_guess = np.zeros(n)
-# tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp, steam,
-#                                     tes_transfer, tes_cost, stores=steam,
-#                                     guess=tes_guess)
+def tes_cost(dispatch):
+    # Simulating high-capital and low-operating costs
+    return 1000 + 0.01*np.sum(dispatch[steam])
 
+tes_capacity = np.ones(n)*800
+tes_ramp = np.ones(n)*200
+tes_guess = np.zeros(n)
+tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp, steam, tes_transfer,
+                                    tes_cost, stores=steam, guess=tes_guess)
 
 def turbine_transfer(data, meta):
     effciency = 0.7  # Just a random guess at a turbine efficiency
@@ -58,7 +61,7 @@ def turbine_cost(dispatch):
 
 turbine_capacity = np.ones(n)*1000
 turbine_guess = 100*np.sin(time_horizon) + 500
-turbine_ramp = 100*np.ones(n)
+turbine_ramp = 20*np.ones(n)
 turbine = chickadee.PyOptSparseComponent('turbine', turbine_capacity,
                                 turbine_ramp, electricity,
                                 turbine_transfer, turbine_cost,
@@ -80,8 +83,7 @@ elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp,
 
 dispatcher = chickadee.PyOptSparse(window_length=10)
 
-comps = [smr, turbine, elm]
-# comps = [smr, tes, turbine, elm]
+comps = [smr, tes, turbine, elm]
 
 start_time = time.time()
 optimal_dispatch = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
@@ -89,13 +91,20 @@ end_time = time.time()
 # print('Full optimal dispatch:', optimal_dispatch)
 print('Dispatch time:', end_time - start_time)
 
+# Check to make sure that the ramp rate is never too high
 ramp = np.diff(optimal_dispatch.state['turbine'][electricity])
+
 
 balance = optimal_dispatch.state['turbine'][electricity] + \
     optimal_dispatch.state['el_market'][electricity]
 
+import matplotlib.pyplot as plt
 plt.plot(time_horizon,
-         optimal_dispatch.state['turbine'][electricity], label='El gen')
+         optimal_dispatch.state['smr'][steam], label='SMR generation')
+plt.plot(time_horizon,
+         optimal_dispatch.state['turbine'][electricity], label='turbine generation')
+plt.plot(time_horizon,
+         optimal_dispatch.state['tes'][steam], label='TES storage')
 plt.plot(time_horizon,
          optimal_dispatch.state['el_market'][electricity], label='El cons')
 plt.plot(time_horizon, balance, label='Electricity balance')

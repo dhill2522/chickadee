@@ -16,7 +16,6 @@ class DispatchState(object):
     '''Modeled after idaholab/HERON NumpyState object'''
     def __init__(self, components: List[PyOptSparseComponent], time: List[float]):
         s = {
-            'time': time
         }
 
         for c in components:
@@ -131,7 +130,7 @@ class PyOptSparse(Dispatcher):
         for d in disp_comps:
             for i in range(len(time)):
                 request = {d.capacity_resource: opt_vars[d.name][i]}
-                bal, _ = d.transfer(request, None)
+                bal, self.meta = d.transfer(request, self.meta)
                 for res, value in bal.items():
                     dispatch.set_activity(d, res, value, i)
         return dispatch
@@ -217,6 +216,22 @@ class PyOptSparse(Dispatcher):
             win_start_i = win_end_i - 1
         return full_dispatch
 
+    def generate_objective(self) -> callable:
+        if self.external_obj_func:
+            return self.external_obj_func
+        else:
+
+            def objective(dispatch: DispatchState) -> float:
+                '''The objective function. It is broken out to allow for easier scaling.
+                :param dispatch: the full dispatch of the system
+                :returns: float, value of the objective function
+                '''
+                obj = 0.0
+                for c in self.components:
+                    obj += c.cost_function(dispatch.state[c.name])
+                return obj
+            return objective
+
     def _dispatch_window(self, time_window: List[float],
                             start_i: int, end_i: int) -> DispatchState:
         '''Dispatch a time-window using a resource-pool method
@@ -235,15 +250,7 @@ class PyOptSparse(Dispatcher):
             print('Step 4) Assembling the big function',
               time_lib.time() - self.start_time)
 
-        def objective(dispatch: DispatchState) -> float:
-            '''The objective function. It is broken out to allow for easier scaling.
-            :param dispatch: the full dispatch of the system
-            :returns: float, value of the objective function
-            '''
-            obj = 0.0
-            for c in self.components:
-                obj += c.cost_function(dispatch.state[c.name])
-            return obj
+        objective = self.generate_objective()
 
         obj_scale = 1.0
         if self.scale_objective:
@@ -350,6 +357,7 @@ class PyOptSparse(Dispatcher):
 
     def dispatch(self, components: List[PyOptSparseComponent],
                     time: List[float], timeSeries: List[TimeSeries] = [],
+                    external_obj_func: callable=None, meta=None,
                     verbose: bool=False, scale_objective: bool=True,
                     slack_storage: bool=False) -> DispatchState:
         """Optimally dispatch a given set of components over a time horizon
@@ -358,10 +366,14 @@ class PyOptSparse(Dispatcher):
         :param components: List of components to dispatch
         :param time: time horizon to dispatch the components over
         :param timeSeries: list of TimeSeries objects needed for the dispatch
+        :param external_obj_func: callable, An external objective function
+        :param meta: stuff, an arbitrary object passed to the transfer functions
         :param verbose: Whether to print verbose dispatch
         :param scale_objective: Whether to scale the objective function by its initial value
         :param slack_storage: Whether to use artificial storage components as "slack" variables
         :returns: A dispatch-state object representing the optimal system dispatch
+
+        Note that use of `external_obj_func` will replace the use of all component cost functions
         """
         # FIXME: Should check to make sure that the components have arrays of the right length
         self.components = components
@@ -369,6 +381,8 @@ class PyOptSparse(Dispatcher):
         self.verbose = verbose
         self.timeSeries = timeSeries
         self.scale_objective = scale_objective
+        self.external_obj_func = external_obj_func # Should be callable or None
+        self.meta = meta
 
         resources = [c.get_resources() for c in self.components]
         self.resources = list(set(chain.from_iterable(resources)))
