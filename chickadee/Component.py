@@ -46,14 +46,15 @@ class Component(object):
 
 
 class PyOptSparseComponent(Component):
-    def __init__(self, name: str, capacity: np.ndarray, ramp_rate: np.ndarray,
+    def __init__(self, name: str, capacity: np.ndarray, ramp_rate_up: np.ndarray, ramp_rate_down: np.ndarray,
                 capacity_resource: Resource, transfer: Callable, cost_function: Callable,
                 produces=None, consumes=None, stores=None, min_capacity=None, dispatch_type: str='independent',
                 guess: np.ndarray=None):
         """A Component compatible with the PyOptSparse dispatcher
         :param name: Name of the component. Used in representing dispatches
         :param capacity: Maximum capacity of the component in terms of `capacity_resource`
-        :param ramp_rate: the maximum ramp rate of the component in terms of capacity resource units per time
+        :param ramp_rate_up: the maximum positive ramp rate of the component in terms of capacity resource units per time
+        :param ramp_rate_down: the maximum negative ramp rate of the component in terms of capacity resource units per time
         :param transfer: a method for calculating the component transfer at a time point
         :param cost_function: an function describing the economic cost of running the unit over a given dispatch
         :param produces: a list of resources produced by the component
@@ -72,12 +73,16 @@ class PyOptSparseComponent(Component):
                                                 transfer, 0.0, produces, consumes,
                                                 stores, dispatch_type)
 
-        if type(capacity) is not np.ndarray:
-            raise TypeError(
-                'PyOptSparseComponent capacity must be a numpy array')
-        if type(ramp_rate) is not np.ndarray:
-            raise TypeError(
-                'PyOptSparseComponent ramp_rate must be a numpy array')
+        should_be_arrays = {
+            'capacity': capacity,
+            'ramp_rate_up':ramp_rate_up,
+            'ramp_rate_down':ramp_rate_down,
+        }
+        for name, value in should_be_arrays.items():
+            if type(value) is not np.ndarray:
+                raise TypeError(
+                    f'PyOptSparseComponent {name} must be a numpy array')
+
 
         if guess is None:
             self.guess = self.capacity
@@ -95,7 +100,8 @@ class PyOptSparseComponent(Component):
                 raise TypeError('min_capacity must be a numpy array')
             self.min_capacity = min_capacity
 
-        self.ramp_rate = ramp_rate
+        self.ramp_rate_up = ramp_rate_up
+        self.ramp_rate_down = ramp_rate_down
         self.cost_function = cost_function
 
         # Set up the storage tracking dict

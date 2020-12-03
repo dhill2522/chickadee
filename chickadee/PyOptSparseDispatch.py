@@ -166,8 +166,7 @@ class PyOptSparse(Dispatcher):
                 # Fixed dispatch components do not contribute to the variables
                 continue
             else:  # Independent and dependent dispatch
-                # FIXME: get real min capacity
-                lower = np.zeros(len(c.capacity))
+                lower = c.min_capacity
                 upper = c.capacity
                 # Note: This assumes everything based off the first point
                 if lower[0] < upper[0]:
@@ -297,11 +296,12 @@ class PyOptSparse(Dispatcher):
                 bounds = [bnd[start_i:end_i] for bnd in self.vs[comp.name]]
                 # FIXME: will need to find a way of generating the guess values
                 guess = comp.guess[start_i:end_i]
-                ramp = comp.ramp_rate[start_i:end_i-1]
+                ramp_up = comp.ramp_rate_up[start_i:end_i-1]
+                ramp_down = comp.ramp_rate_down[start_i:end_i-1]
                 optProb.addVarGroup(comp.name, len(time_window), 'c',
                                     value=guess, lower=bounds[0], upper=bounds[1])
                 optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
-                                lower=-1*ramp, upper=ramp)
+                                lower=-1*ramp_down, upper=ramp_up)
         optProb.addConGroup('resource_balance', len(
             pool_cons), lower=0, upper=0)
         optProb.addObj('objective')
@@ -350,7 +350,7 @@ class PyOptSparse(Dispatcher):
             trans = self.gen_slack_storage_trans(res)
             cost = self.gen_slack_storage_cost(res)
 
-            c = PyOptSparseComponent(f'{res}_slack', num, num, res, trans,
+            c = PyOptSparseComponent(f'{res}_slack', num, num, num, res, trans,
                                         cost, stores=[res], guess=guess)
             self.components.append(c)
             self.slack_storage_added = True
