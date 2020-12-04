@@ -5,8 +5,10 @@ using the pyOpySparse dispatcher
 import chickadee
 import numpy as np
 import time
+import pandas as pd
+from sqlalchemy import create_engine
 
-n = 40 # number of time points
+n = 110 # number of time points
 time_horizon = np.linspace(0, 10 , n)
 
 steam = chickadee.Resource('steam')
@@ -14,7 +16,7 @@ electricity = chickadee.Resource('electricity')
 
 load = chickadee.TimeSeries()
 
-def smr_cost(dispatch) -> float:
+def smr_cost(dispatch):
     return sum(-0.001 * dispatch[steam])
 
 def smr_transfer(data, meta):
@@ -24,22 +26,8 @@ def smr_transfer(data, meta):
 smr_capacity = np.ones(n)*1200
 smr_ramp = 600*np.ones(n)
 smr_guess = 100*np.sin(time_horizon) + 300
-smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp,
-                    steam, smr_transfer, smr_cost, produces=steam, guess=smr_guess)
-
-def tes_transfer(data, meta):
-
-    return data, meta
-
-def tes_cost(dispatch):
-    # Simulating high-capital and low-operating costs
-    return 1000 + 0.01*np.sum(dispatch[steam])
-
-tes_capacity = np.ones(n)*800
-tes_ramp = np.ones(n)*200
-tes_guess = np.zeros(n)
-tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp, tes_ramp, steam, tes_transfer,
-                                    tes_cost, stores=steam, guess=tes_guess)
+smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp, steam,
+                                smr_transfer, smr_cost, produces=steam, guess=smr_guess)
 
 def turbine_transfer(data, meta):
     effciency = 0.7  # Just a random guess at a turbine efficiency
@@ -83,7 +71,8 @@ elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp, elm_ra
 
 dispatcher = chickadee.PyOptSparse(window_length=10)
 
-comps = [smr, tes, turbine, elm]
+comps = [smr, turbine, elm]
+# comps = [smr, tes, turbine, elm]
 
 start_time = time.time()
 optimal_dispatch = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
@@ -93,6 +82,7 @@ print('Dispatch time:', end_time - start_time)
 
 # Check to make sure that the ramp rate is never too high
 ramp = np.diff(optimal_dispatch.state['turbine'][electricity])
+assert max(ramp) <= turbine.ramp_rate_up[0], 'Max ramp rate exceeded!'
 
 
 balance = optimal_dispatch.state['turbine'][electricity] + \
@@ -100,14 +90,11 @@ balance = optimal_dispatch.state['turbine'][electricity] + \
 
 import matplotlib.pyplot as plt
 plt.plot(time_horizon,
-         optimal_dispatch.state['smr'][steam], label='SMR generation')
-plt.plot(time_horizon,
-         optimal_dispatch.state['turbine'][electricity], label='turbine generation')
-plt.plot(time_horizon,
-         optimal_dispatch.state['tes'][steam], label='TES storage')
+         optimal_dispatch.state['turbine'][electricity], label='El gen')
 plt.plot(time_horizon,
          optimal_dispatch.state['el_market'][electricity], label='El cons')
 plt.plot(time_horizon, balance, label='Electricity balance')
 plt.plot(time_horizon[:-1], ramp, label='Ramp rate')
 plt.legend()
 plt.show()
+
