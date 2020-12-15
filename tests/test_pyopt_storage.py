@@ -14,13 +14,28 @@ electricity = chickadee.Resource('electricity')
 
 load = chickadee.TimeSeries()
 
-def smr_cost(dispatch) -> float:
+def smr_cost(dispatch: dict) -> float:
+    '''Ecomonic cost function
+    :param dispatch: dict, component dispatch
+    :returns: float, the cost of running that dispatch
+
+    This function will receive a dict representing a dispatch for a particular
+    component and is required to return a float representing the economic cost
+    of running that dispatch. A negative cost indicates an overall economic cost
+    while a postive value indicates an economic benefit.
+
+    This cost function is not required if the `external_obj_func` option is used
+    in the dispatcher.
+    '''
     # Impose a high ramp cost
-    ramp_cost = -50*sum(abs(np.diff(dispatch[steam])))
+    ramp_cost = 50*sum(abs(np.diff(dispatch[steam])))
 
     return sum(-0.1 * dispatch[steam] - ramp_cost)
 
-def smr_transfer(data, meta):
+def smr_transfer(data: dict, meta: dict) -> list:
+    '''A component transfer function
+    Uses the exact same format as is used in HERON for compatibility.
+    '''
     return data, meta
 
 

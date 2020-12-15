@@ -73,7 +73,7 @@ comps = [smr, turbine, elm]
 # comps = [smr, tes, turbine, elm]
 
 start_time = time.time()
-optimal_dispatch = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
+optimal_dispatch, storage = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
 end_time = time.time()
 # print('Full optimal dispatch:', optimal_dispatch)
 print('Dispatch time:', end_time - start_time)

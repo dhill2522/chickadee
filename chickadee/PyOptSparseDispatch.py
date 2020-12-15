@@ -233,6 +233,7 @@ class PyOptSparse(Dispatcher):
         return full_dispatch, self.storage_levels
 
     def generate_objective(self) -> callable:
+        '''Assembles an objective function to minimize the system cost'''
         if self.external_obj_func:
             return self.external_obj_func
         else:
@@ -305,7 +306,7 @@ class PyOptSparse(Dispatcher):
                 # At this point the dispatch should be fully determined, so assemble the return object
                 things = {}
                 # Dispatch the components to generate the obj val
-                things['objective'] = -objective(dispatch)/obj_scale
+                things['objective'] = objective(dispatch)/obj_scale
                 # Run the resource pool constraints
                 things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
                 for comp in self.components:
