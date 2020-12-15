@@ -4,3 +4,5 @@
 **/IPOPT.out
 **/__pycache__/
 **/log.log
+dist/
+**/**.out

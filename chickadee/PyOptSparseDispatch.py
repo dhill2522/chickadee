@@ -365,7 +365,7 @@ class PyOptSparse(Dispatcher):
             print('Step 6) Running the dispatch optimization',
               time_lib.time() - self.start_time)
         try:
-            opt = pyoptsparse.OPT('IPOPT')
+            opt = pyoptsparse.OPT('slsqp')
             sol = opt(optProb, sens='CD')
             print(sol)
             if self.verbose:
