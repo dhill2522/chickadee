@@ -1,3 +1,7 @@
+'''
+Test that NHES is properly handled in Chickadee
+using the pyOpySparse dispatcher
+'''
 import chickadee
 import numpy as np
 import time
@@ -16,36 +20,21 @@ electricity = chickadee.Resource('electricity')
 
 load = chickadee.TimeSeries()
 
-def smr_cost(dispatch: dict) -> float:
-    # Impose a high ramp cost
-    ramp_cost = 50*sum(abs(np.diff(dispatch[steam])))
-    return sum(-0.1 * dispatch[steam] - ramp_cost)
+def smr_cost(dispatch):
+    return sum(-0.001 * dispatch[steam])
 
-def smr_transfer(data: dict, meta: dict) -> list:
+def smr_transfer(data, meta):
     return data, meta
 
 
 smr_capacity = np.ones(n)*1280*35
-smr_ramp = np.ones(n)*.00003*1280*35  # FIXME This is the ramprates that need to change
-smr_guess = np.ones(n)*.9*1280*35
+smr_ramp = np.ones(n)*.03*1280*35
+smr_guess = np.ones(n)*.8*1280*35
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp, steam,
                                 smr_transfer, smr_cost, produces=steam, guess=smr_guess)
 
-def tes_transfer(data, meta):
-    return data, meta
-
-def tes_cost(dispatch):
-    # Simulating high-capital and low-operating costs
-    return -1000 - 0.01*np.sum(dispatch[steam])
-
-tes_capacity = np.ones(n)*9e8
-tes_ramp = np.ones(n)*5e5
-tes_guess = np.zeros(n)
-tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp, tes_ramp, steam, tes_transfer,
-                                    tes_cost, stores=steam, guess=tes_guess)
-
 def turbine_transfer(data, meta):
-    effciency = 0.7  # Just a random guess at a turbine efficiency
+    effciency = 0.8  # Just a random guess at a turbine efficiency
 
     if steam in data:
         # Determine the electricity output for a given steam input
@@ -86,40 +75,30 @@ elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp, elm_ra
 
 dispatcher = chickadee.PyOptSparse(window_length=10)
 
-# comps = [smr, turbine, elm]
-comps = [smr, tes, turbine, elm]
+comps = [smr, turbine, elm]
+# comps = [smr, tes, turbine, elm]
 
 start_time = time.time()
-optimal_dispatch, storage = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
+optimal_dispatch = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
 end_time = time.time()
 # print('Full optimal dispatch:', optimal_dispatch)
 print('Dispatch time:', end_time - start_time)
 
 # Check to make sure that the ramp rate is never too high
-turbine_ramp = np.diff(optimal_dispatch.state['turbine'][electricity])
-tes_ramp = np.diff(optimal_dispatch.state['tes'][steam])
+ramp = np.diff(optimal_dispatch.state['turbine'][electricity])
+assert max(ramp) <= turbine.ramp_rate_up[0], 'Max ramp rate exceeded!'
+
 
 balance = optimal_dispatch.state['turbine'][electricity] + \
     optimal_dispatch.state['el_market'][electricity]
 
 import matplotlib.pyplot as plt
-plt.subplot(2,1,1)
 plt.plot(time_horizon,
-        optimal_dispatch.state['tes'][steam], label='TES activity')
+         optimal_dispatch.state['turbine'][electricity], label='El gen')
 plt.plot(time_horizon,
-        storage['tes'], label='TES storage level')
-plt.plot(time_horizon, tes_capacity*np.ones(len(time_horizon)), label='TES Max Capacity')
-plt.plot(time_horizon[:-1], tes_ramp, label='TES ramp')
-plt.legend()
-
-plt.subplot(2,1,2)
-plt.plot(time_horizon,
-         optimal_dispatch.state['smr'][steam], label='SMR generation')
-plt.plot(time_horizon,
-         optimal_dispatch.state['turbine'][electricity], label='turbine generation')
-plt.plot(time_horizon,
-         optimal_dispatch.state['el_market'][electricity], label='El market')
+         optimal_dispatch.state['el_market'][electricity], label='El cons')
 plt.plot(time_horizon, balance, label='Electricity balance')
-plt.plot(time_horizon[:-1], turbine_ramp, label='turbine ramp')
+plt.plot(time_horizon[:-1], ramp, label='Ramp rate')
 plt.legend()
 plt.show()
+
