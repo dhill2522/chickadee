@@ -18,7 +18,7 @@ load = chickadee.TimeSeries()
 
 def smr_cost(dispatch: dict) -> float:
     # Impose a high ramp cost
-    ramp_cost = 50*sum(abs(np.diff(dispatch[steam])))
+    ramp_cost = 5000*sum(abs(np.diff(dispatch[steam])))
     return sum(-0.1 * dispatch[steam] - ramp_cost)
 
 def smr_transfer(data: dict, meta: dict) -> list:
@@ -26,7 +26,7 @@ def smr_transfer(data: dict, meta: dict) -> list:
 
 
 smr_capacity = np.ones(n)*1280*35
-smr_ramp = np.ones(n)*.00003*1280*35  # FIXME This is the ramprates that need to change
+smr_ramp = np.ones(n)*1  # FIXME This is the ramprates that need to change
 smr_guess = np.ones(n)*.9*1280*35
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp, steam,
                                 smr_transfer, smr_cost, produces=steam, guess=smr_guess)
