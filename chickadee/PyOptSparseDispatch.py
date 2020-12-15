@@ -138,6 +138,7 @@ class PyOptSparse(Dispatcher):
     def _dispatch_pool(self) -> DispatchState:
         '''Dispatch the given system using a resource-pool method
         :returns: DispatchState, the optimal dispatch of the system
+        :returns: dict, the storage levels of the storage components
 
          Steps:
            - Assemble all the vars into a vars dict
@@ -161,6 +162,7 @@ class PyOptSparse(Dispatcher):
 
         # Step 1) Find the vars: 1 for each component input where dispatch is not fixed
         self.vs = {}  # Min/Max tuples of the various input
+        self.storage_levels = {}
         for c in self.components:
             if c.dispatch_type == 'fixed':
                 # Fixed dispatch components do not contribute to the variables
@@ -173,6 +175,8 @@ class PyOptSparse(Dispatcher):
                     self.vs[c.name] = [lower, upper]
                 else:
                     self.vs[c.name] = [upper, lower]
+            if c.stores:
+                self.storage_levels[c.name] = np.zeros(len(self.time))
 
         full_dispatch = DispatchState(self.components, self.time)
 
@@ -206,6 +210,19 @@ class PyOptSparse(Dispatcher):
                         comp, res, win_start_i, win_end_i,
                         win_dispatch.get_activity(comp, res)
                     )
+                if comp.stores:
+                    # Get the initial storage level
+                    if win_start_i == 0:
+                        init_level = comp.storage_init_level
+                    else:
+                        init_level = self.storage_levels[comp.name][win_start_i-1]
+
+                    print(comp.name, 'storage init:', init_level)
+                    # Update the storage_levels dict
+                    activity = win_dispatch.get_activity(
+                        comp, comp.capacity_resource)
+                    activity = np.insert(activity, 0, init_level)
+                    self.storage_levels[comp.name][win_start_i:win_end_i] = np.cumsum(activity)[1:]
 
             # Increment the window indexes
             prev_win_end_i = win_end_i
@@ -213,7 +230,7 @@ class PyOptSparse(Dispatcher):
 
             # This results in time windows that match up, but do not overlap
             win_start_i = win_end_i - 1
-        return full_dispatch
+        return full_dispatch, self.storage_levels
 
     def generate_objective(self) -> callable:
         if self.external_obj_func:
@@ -235,6 +252,8 @@ class PyOptSparse(Dispatcher):
                             start_i: int, end_i: int) -> DispatchState:
         '''Dispatch a time-window using a resource-pool method
         :param time_window: The time window to dispatch the system over
+        :param start_i: The time-array index for the start of the window
+        :param end_i: The time-array index for the end of the window
         :returns: DispatchState, the optimal dispatch over the time_window
         '''
 
@@ -254,14 +273,25 @@ class PyOptSparse(Dispatcher):
         obj_scale = 1.0
         if self.scale_objective:
             # Make an initial call to the objective function and scale it
-            init_stuff = {}
+            init_dispatch = {}
             for comp in self.components:
                 if comp.dispatch_type != 'fixed':
-                    init_stuff[comp.name] = comp.guess[start_i:end_i]
+                    init_dispatch[comp.name] = comp.guess[start_i:end_i]
 
             # get the initial dispatch so it can be used for scaling
-            initdp = self.determine_dispatch(init_stuff, time_window, start_i, end_i)
+            initdp = self.determine_dispatch(init_dispatch, time_window, start_i, end_i)
             obj_scale = objective(initdp)
+
+        # Figure out the initial storage levels
+        # if this is the first time window, use the 'storage_init_level' property.
+        # Otherwise use the end storage level from the previous time window.
+        storage_levels = {}
+        for comp in self.components:
+            if comp.stores:
+                if start_i == 0:
+                    storage_levels[comp.name] = comp.storage_init_level
+                else:
+                    storage_levels[comp.name] = self.storage_levels[comp.name][start_i-1]
 
         def optimize_me(stuff: dict) -> [dict, bool]:
             '''Objective function passed to pyOptSparse
@@ -281,8 +311,13 @@ class PyOptSparse(Dispatcher):
                 for comp in self.components:
                     if comp.dispatch_type != 'fixed':
                         things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
+                    if comp.stores is not None:
+                        # Add the initial storage level
+                        storage = np.insert(dispatch.state[comp.name][comp.stores],
+                                                0, storage_levels[comp.name])
+                        things[f'{comp.name}_storage_level'] = np.cumsum(storage)[1:]
                 return things, False
-            except Exception: # If the input crashes the opjective function
+            except Exception: # If the input crashes the objective function
                 return {}, True
         self.objective = optimize_me
 
@@ -298,10 +333,28 @@ class PyOptSparse(Dispatcher):
                 guess = comp.guess[start_i:end_i]
                 ramp_up = comp.ramp_rate_up[start_i:end_i-1]
                 ramp_down = comp.ramp_rate_down[start_i:end_i-1]
-                optProb.addVarGroup(comp.name, len(time_window), 'c',
-                                    value=guess, lower=bounds[0], upper=bounds[1])
                 optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
                                 lower=-1*ramp_down, upper=ramp_up)
+
+                if comp.stores is not None:
+                    min_capacity = comp.min_capacity[start_i:end_i]
+                    max_capacity = comp.capacity[start_i:end_i]
+                    ramp_up = comp.ramp_rate_up[start_i:end_i]
+                    ramp_down = -1*comp.ramp_rate_down[start_i:end_i]
+                    print(f'{comp.name}', comp.stores, min_capacity, max_capacity)
+                    print(ramp_down, ramp_up)
+                    optProb.addConGroup(f'{comp.name}_storage_level', len(time_window),
+                        lower=min_capacity, upper=max_capacity)
+                    # Storage components can have negative activities
+                    optProb.addVarGroup(comp.name, len(time_window), 'c',
+                                        value=np.zeros(len(ramp_down)),
+                                        lower=ramp_down,
+                                        upper=ramp_up)
+
+                else:
+                    optProb.addVarGroup(comp.name, len(time_window), 'c',
+                                        value=guess, lower=bounds[0], upper=bounds[1])
+
         optProb.addConGroup('resource_balance', len(
             pool_cons), lower=0, upper=0)
         optProb.addObj('objective')
@@ -313,6 +366,7 @@ class PyOptSparse(Dispatcher):
         try:
             opt = pyoptsparse.OPT('IPOPT')
             sol = opt(optProb, sens='CD')
+            print(sol)
             if self.verbose:
                 print('Dispatch optimization successful')
         except Exception as err:
@@ -371,8 +425,8 @@ class PyOptSparse(Dispatcher):
         :param verbose: Whether to print verbose dispatch
         :param scale_objective: Whether to scale the objective function by its initial value
         :param slack_storage: Whether to use artificial storage components as "slack" variables
-        :returns: A dispatch-state object representing the optimal system dispatch
-
+        :returns: optDispatch, A dispatch-state object representing the optimal system dispatch
+        :returns: storage_levels, the storage levels of the system components
         Note that use of `external_obj_func` will replace the use of all component cost functions
         """
         # FIXME: Should check to make sure that the components have arrays of the right length
@@ -398,6 +452,5 @@ class PyOptSparse(Dispatcher):
 # - Calculate exact derivatives using JAX if possible
 #   - Could use extra meta props to accomplish this
 #   - Could also explicitly disable use of meta in user functions
-# - Scale the obj func inputs and outputs
 # - Integrate storage into the dispatch
 # - Handle infeasible cases clearly

@@ -14,7 +14,7 @@ class Component(object):
         :param econ_param: an economic parameter describing the economics of running the unit
         :param produces: a list of resources produced by the component
         :param consumes: a list of resources consumed by the component
-        :param stores: a list of resources stored by the component
+        :param stores: a resource stored by the component. Limited to one.
         :param dispatch_type: the dispatch type of the component
         """
         super(Component, self).__init__()
@@ -26,10 +26,11 @@ class Component(object):
             self.produces = produces
         else:
             self.produces = [produces]
-        if type(stores) == list:
-            self.stores = stores
-        else:
-            self.stores = [stores]
+        # if type(stores) == list:
+        #     self.stores = stores
+        # else:
+        #     self.stores = [stores]
+        self.stores = stores
         if type(consumes) == list:
             self.consumes = consumes
         else:
@@ -42,14 +43,14 @@ class Component(object):
 
 
     def get_resources(self):
-        return [t for t in set([*self.produces, *self.stores, *self.consumes]) if t]
+        return [t for t in set([*self.produces, self.stores, *self.consumes]) if t]
 
 
 class PyOptSparseComponent(Component):
     def __init__(self, name: str, capacity: np.ndarray, ramp_rate_up: np.ndarray, ramp_rate_down: np.ndarray,
                 capacity_resource: Resource, transfer: Callable, cost_function: Callable,
                 produces=None, consumes=None, stores=None, min_capacity=None, dispatch_type: str='independent',
-                guess: np.ndarray=None):
+                guess: np.ndarray=None, storage_init_level=0.0):
         """A Component compatible with the PyOptSparse dispatcher
         :param name: Name of the component. Used in representing dispatches
         :param capacity: Maximum capacity of the component in terms of `capacity_resource`
@@ -59,15 +60,17 @@ class PyOptSparseComponent(Component):
         :param cost_function: an function describing the economic cost of running the unit over a given dispatch
         :param produces: a list of resources produced by the component
         :param consumes: a list of resources consumed by the component
-        :param stores: a list of resources stored by the component
+        :param stores: resource stored by the component
         :param min_capacity: Minimum capacity of the unit at each time point. Defaults to 0.
         :param dispatch_type: the dispatch type of the component
         :param guess: a guess at the optimal dispatch of the unit in terms of its `capacity_resource`. Defaults to the capacity.
+        :param storage_init_level: initial storage level
 
-        Not that a component cannot store resources in addition to producing or consuming
+        Note that a component cannot store resources in addition to producing or consuming
         resources. Storage components must be separate from producers and consumers.
 
-        Components can store multiple resources simultaneously.
+        Components can only store a single resource at a time. This could be extended in the
+        future to interrelated storage of multiple resources.
         """
         super(PyOptSparseComponent, self).__init__(name, capacity, capacity_resource,
                                                 transfer, 0.0, produces, consumes,
@@ -103,9 +106,13 @@ class PyOptSparseComponent(Component):
         self.ramp_rate_up = ramp_rate_up
         self.ramp_rate_down = ramp_rate_down
         self.cost_function = cost_function
+        self.storage_init_level = storage_init_level
 
         # Set up the storage tracking dict
         # This is different than the activities. Activities are the change at each point
         # in time. Storage represents the amount of a resoure that is currently being
-        # stored.
-        self.storage_level = {res: np.zeros(len(self.capacity)) for res in self.stores}
+        # stored. Currently done in the dispatcher rather than the component
+        # self.storage_level = np.zeros(len(self.capacity))
+        # self.storage_level = {res: np.zeros(
+        #     len(self.capacity)) for res in self.stores}
+
