@@ -5,4 +5,5 @@
 **/__pycache__/
 **/log.log
 dist/
+build/
 **/**.out

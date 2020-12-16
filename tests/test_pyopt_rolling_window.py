@@ -73,27 +73,25 @@ comps = [smr, turbine, elm]
 # comps = [smr, tes, turbine, elm]
 
 start_time = time.time()
-optimal_dispatch, storage = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
+sol = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
 end_time = time.time()
 # print('Full optimal dispatch:', optimal_dispatch)
 print('Dispatch time:', end_time - start_time)
 
 # Check to make sure that the ramp rate is never too high
-ramp = np.diff(optimal_dispatch.state['turbine'][electricity])
+ramp = np.diff(sol.dispatch['turbine'][electricity])
 assert max(ramp) <= turbine.ramp_rate_up[0], 'Max ramp rate exceeded!'
 
 
-balance = optimal_dispatch.state['turbine'][electricity] + \
-    optimal_dispatch.state['el_market'][electricity]
+balance = sol.dispatch['turbine'][electricity] + \
+    sol.dispatch['el_market'][electricity]
 
 import matplotlib.pyplot as plt
-plt.plot(time_horizon,
-         optimal_dispatch.state['turbine'][electricity], label='El gen')
-plt.plot(time_horizon,
-         optimal_dispatch.state['el_market'][electricity], label='El cons')
-plt.plot(time_horizon, balance, label='Electricity balance')
-plt.plot(time_horizon[:-1], ramp, label='Ramp rate')
+plt.plot(sol.time, sol.dispatch['turbine'][electricity], label='El gen')
+plt.plot(sol.time, sol.dispatch['el_market'][electricity], label='El cons')
+plt.plot(sol.time, balance, label='Electricity balance')
+plt.plot(sol.time[:-1], ramp, label='Ramp rate')
 plt.legend()
 plt.show()
 
-print(optimal_dispatch.state['smr'][steam])
+print(sol.dispatch['smr'][steam])

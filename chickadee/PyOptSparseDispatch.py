@@ -1,6 +1,7 @@
 from .Dispatcher import Dispatcher
 from .Component import PyOptSparseComponent
 from .TimeSeries import TimeSeries
+from .Solution import Solution
 
 import pyoptsparse
 import numpy as np
@@ -48,6 +49,7 @@ class DispatchState(object):
 
     def __repr__(self):
         return pformat(self.state)
+
 
 
 class PyOptSparse(Dispatcher):
@@ -194,8 +196,8 @@ class PyOptSparse(Dispatcher):
             if win_end_i == prev_win_end_i:
                 break
 
-            if self.verbose:
-                print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
+            # if self.verbose:
+            print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
 
             win_horizon = self.time[win_start_i:win_end_i]
             if self.verbose:
@@ -230,7 +232,9 @@ class PyOptSparse(Dispatcher):
 
             # This results in time windows that match up, but do not overlap
             win_start_i = win_end_i - 1
-        return full_dispatch, self.storage_levels
+
+        solution = Solution(self.time, full_dispatch.state, self.storage_levels, False)
+        return solution
 
     def generate_objective(self) -> callable:
         '''Assembles an objective function to minimize the system cost'''
@@ -250,7 +254,7 @@ class PyOptSparse(Dispatcher):
             return objective
 
     def _dispatch_window(self, time_window: List[float],
-                            start_i: int, end_i: int) -> DispatchState:
+                            start_i: int, end_i: int) -> Solution:
         '''Dispatch a time-window using a resource-pool method
         :param time_window: The time window to dispatch the system over
         :param start_i: The time-array index for the start of the window
@@ -365,7 +369,7 @@ class PyOptSparse(Dispatcher):
             print('Step 6) Running the dispatch optimization',
               time_lib.time() - self.start_time)
         try:
-            opt = pyoptsparse.OPT('slsqp')
+            opt = pyoptsparse.OPT('ipopt')
             sol = opt(optProb, sens='CD')
             print(sol)
             if self.verbose:
@@ -414,7 +418,7 @@ class PyOptSparse(Dispatcher):
                     time: List[float], timeSeries: List[TimeSeries] = [],
                     external_obj_func: callable=None, meta=None,
                     verbose: bool=False, scale_objective: bool=True,
-                    slack_storage: bool=False) -> DispatchState:
+                    slack_storage: bool=False) -> Solution:
         """Optimally dispatch a given set of components over a time horizon
         using a list of TimeSeries
 
