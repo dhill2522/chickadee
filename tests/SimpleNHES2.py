@@ -8,8 +8,23 @@ n = 110 # number of time points
 
 time_horizon = np.linspace(0, n-1 , n)
 db_load = '../../data/Ercot/Ercot Load/ERCOT_load_2019.csv'
+db_path = '../../data/ercot_data.db'
+
 Loaddata = pd.read_csv(db_load)
 Load = .5*Loaddata['ERCOT'].values[0:n]
+engine = create_engine(f'sqlite:///{db_path}')
+
+query = """
+    SELECT Generation, Fuel, Date_Time from Generation
+    WHERE Resolution = "Hourly" and
+    Date_Time BETWEEN date("2019-01-01") AND date("2019-12-31")
+    """
+data = pd.read_sql(query, con=engine)
+Loaddata = pd.read_csv(db_load)
+Winddata = data[data['Fuel'] == 'Wind']
+Solardata = data[data['Fuel'] == 'Solar']
+Wind = Winddata['Generation'].values[0:n]
+Solar = Solardata['Generation'].values[0:n]
 
 steam = chickadee.Resource('steam')
 electricity = chickadee.Resource('electricity')
@@ -30,6 +45,30 @@ smr_ramp = np.ones(n)*1000  # FIXME This is the ramprates that need to change
 smr_guess = np.ones(n)*.9*1280*35
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp, steam,
                                 smr_transfer, smr_cost, produces=steam, guess=smr_guess)
+
+def wind_cost(dispatch):
+    return 0
+
+def wind_transfer(data, meta):
+    return data, meta
+
+wind_capacity = Wind
+wind_ramp = np.ones(n)*1e10
+wind = chickadee.PyOptSparseComponent('wind', wind_capacity, wind_ramp, wind_ramp,
+                                        electricity, wind_transfer, wind_cost,
+                                        produces=electricity, dispatch_type='fixed')
+
+def solar_cost(dispatch):
+    return 0
+
+def solar_transfer(data, meta):
+    return data, meta
+
+solar_capacity = Solar
+solar_ramp = np.ones(n)*1e10
+solar = chickadee.PyOptSparseComponent('solar', solar_capacity, solar_ramp, solar_ramp,
+                                        electricity, solar_transfer, solar_cost,
+                                        produces=electricity, dispatch_type='fixed')
 
 def tes_transfer(data, meta):
     return data, meta
@@ -87,7 +126,7 @@ elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp, elm_ra
 dispatcher = chickadee.PyOptSparse(window_length=10)
 
 # comps = [smr, turbine, elm]
-comps = [smr, tes, turbine, elm]
+comps = [smr, tes, turbine, solar, wind, elm]
 
 start_time = time.time()
 sol = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
@@ -100,7 +139,9 @@ turbine_ramp = np.diff(sol.dispatch['turbine'][electricity])
 tes_ramp = np.diff(sol.dispatch['tes'][steam])
 
 balance = sol.dispatch['turbine'][electricity] + \
-    sol.dispatch['el_market'][electricity]
+          sol.dispatch['el_market'][electricity] + \
+          sol.dispatch['solar'][electricity] + \
+          sol.dispatch['wind'][electricity]
 
 import matplotlib.pyplot as plt
 plt.subplot(2,1,1)
@@ -112,6 +153,8 @@ plt.legend()
 plt.subplot(2,1,2)
 plt.plot(sol.time, sol.dispatch['smr'][steam], label='SMR generation')
 plt.plot(sol.time, sol.dispatch['turbine'][electricity], label='turbine generation')
+plt.plot(sol.time, sol.dispatch['solar'][electricity], label='solar generation')
+plt.plot(sol.time, sol.dispatch['wind'][electricity], label='wind generation')
 plt.plot(sol.time, sol.dispatch['el_market'][electricity], label='El market')
 plt.plot(sol.time, balance, label='Electricity balance')
 plt.plot(sol.time[:-1], turbine_ramp, label='turbine ramp')
