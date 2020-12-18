@@ -41,7 +41,7 @@ def smr_transfer(data: dict, meta: dict) -> list:
 
 
 smr_capacity = np.ones(n)*1280*35
-smr_ramp = np.ones(n)*1000  # FIXME This is the ramprates that need to change
+smr_ramp = np.ones(n)*10  # FIXME This is the ramprates that need to change
 smr_guess = np.ones(n)*.9*1280*35
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp, steam,
                                 smr_transfer, smr_cost, produces=steam, guess=smr_guess)
@@ -157,6 +157,8 @@ plt.plot(sol.time, sol.dispatch['solar'][electricity], label='solar generation')
 plt.plot(sol.time, sol.dispatch['wind'][electricity], label='wind generation')
 plt.plot(sol.time, sol.dispatch['el_market'][electricity], label='El market')
 plt.plot(sol.time, balance, label='Electricity balance')
-plt.plot(sol.time[:-1], turbine_ramp, label='turbine ramp')
+#plt.plot(sol.time[:-1], turbine_ramp, label='turbine ramp')
+plt.plot(sol.time, -(sol.dispatch['wind'][electricity]+sol.dispatch['smr'][steam]*.7), label='negative gen')
 plt.legend()
+plt.savefig('../../graph.png')
 plt.show()
