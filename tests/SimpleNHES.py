@@ -84,7 +84,7 @@ elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp, elm_ra
                                 electricity, el_market_transfer, elm_cost,
                                 consumes=electricity, dispatch_type='fixed')
 
-dispatcher = chickadee.PyOptSparse(window_length=50)
+dispatcher = chickadee.PyOptSparse(window_length=10)
 
 # comps = [smr, turbine, elm]
 comps = [smr, tes, turbine, elm]
@@ -107,6 +107,9 @@ plt.subplot(2,1,1)
 plt.plot(sol.time, sol.dispatch['tes'][steam], label='TES activity')
 plt.plot(sol.time, sol.storage['tes'], label='TES storage level')
 plt.plot(sol.time[:-1], tes_ramp, label='TES ramp')
+ymax = max(sol.storage['tes'])
+plt.vlines([w[0] for w in sol.time_windows], 0, ymax, colors='green', linestyles='--')
+plt.vlines([w[1] for w in sol.time_windows], 0, ymax, colors='blue', linestyles='--')
 plt.legend()
 
 plt.subplot(2,1,2)
@@ -115,5 +118,10 @@ plt.plot(sol.time, sol.dispatch['turbine'][electricity], label='turbine generati
 plt.plot(sol.time, sol.dispatch['el_market'][electricity], label='El market')
 plt.plot(sol.time, balance, label='Electricity balance')
 plt.plot(sol.time[:-1], turbine_ramp, label='turbine ramp')
+ymax = max(sol.dispatch['smr'][steam])
+plt.vlines([w[0] for w in sol.time_windows], 0,
+           ymax, colors='green', linestyles='--')
+plt.vlines([w[1] for w in sol.time_windows], 0,
+           ymax, colors='blue', linestyles='--')
 plt.legend()
 plt.show()

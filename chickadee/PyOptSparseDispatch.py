@@ -182,11 +182,13 @@ class PyOptSparse(Dispatcher):
 
         full_dispatch = DispatchState(self.components, self.time)
 
-        # FIXME: Add constraints to ensure that the ramp constraints are met across windows
-
         win_start_i = 0
         win_i = 0
         prev_win_end_i = 0
+        prev_win_end = {} # a dict for tracking the final values of dispatchable components in a time window
+
+        time_windows = []
+
         while win_start_i < len(self.time):
             win_end_i = win_start_i + self._window_length
             if win_end_i > len(self.time):
@@ -198,11 +200,17 @@ class PyOptSparse(Dispatcher):
 
             # if self.verbose:
             print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
+            time_windows.append([win_start_i, win_end_i])
 
             win_horizon = self.time[win_start_i:win_end_i]
             if self.verbose:
                 print('Dispatching window', win_i)
-            win_dispatch = self._dispatch_window(win_horizon, win_start_i, win_end_i)
+            if win_i == 0:
+                win_dispatch = self._dispatch_window(
+                    win_horizon, win_start_i, win_end_i)
+            else:
+                win_dispatch = self._dispatch_window(
+                    win_horizon, win_start_i, win_end_i, prev_win_end)
             if self.verbose:
                 print(f'Optimal dispatch for win {win_i}:', win_dispatch)
 
@@ -211,6 +219,10 @@ class PyOptSparse(Dispatcher):
                     full_dispatch.set_activity_vector(
                         comp, res, win_start_i, win_end_i,
                         win_dispatch.get_activity(comp, res)
+                    )
+                if comp.dispatch_type != 'fixed':
+                    prev_win_end[comp.name] = win_dispatch.get_activity(
+                        comp, comp.capacity_resource, -1
                     )
                 if comp.stores:
                     # Get the initial storage level
@@ -231,9 +243,10 @@ class PyOptSparse(Dispatcher):
             win_i += 1
 
             # This results in time windows that match up, but do not overlap
-            win_start_i = win_end_i - 1
+            win_start_i = win_end_i
 
-        solution = Solution(self.time, full_dispatch.state, self.storage_levels, False)
+        solution = Solution(self.time, full_dispatch.state, self.storage_levels,
+                                False, time_windows=time_windows)
         return solution
 
     def generate_objective(self) -> callable:
@@ -254,11 +267,12 @@ class PyOptSparse(Dispatcher):
             return objective
 
     def _dispatch_window(self, time_window: List[float],
-                            start_i: int, end_i: int) -> Solution:
+                            start_i: int, end_i: int, prev_win_end: dict=None) -> Solution:
         '''Dispatch a time-window using a resource-pool method
         :param time_window: The time window to dispatch the system over
         :param start_i: The time-array index for the start of the window
         :param end_i: The time-array index for the end of the window
+        :param prev_win_end: dict of the ending values for the previous time window used for consistency constraints
         :returns: DispatchState, the optimal dispatch over the time_window
         '''
 
@@ -315,7 +329,11 @@ class PyOptSparse(Dispatcher):
                 things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
                 for comp in self.components:
                     if comp.dispatch_type != 'fixed':
-                        things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
+                        if start_i == 0:
+                            things[f'ramp_{comp.name}'] = np.diff(stuff[comp.name])
+                        else: # Make sure subsequent windows start from the last point of the previous window
+                            things[f'ramp_{comp.name}'] = np.diff(
+                                np.insert(stuff[comp.name], 0, prev_win_end[comp.name]))
                     if comp.stores is not None:
                         # Add the initial storage level
                         storage = np.insert(dispatch.state[comp.name][comp.stores],
@@ -336,10 +354,14 @@ class PyOptSparse(Dispatcher):
                 bounds = [bnd[start_i:end_i] for bnd in self.vs[comp.name]]
                 # FIXME: will need to find a way of generating the guess values
                 guess = comp.guess[start_i:end_i]
-                ramp_up = comp.ramp_rate_up[start_i:end_i-1]
-                ramp_down = comp.ramp_rate_down[start_i:end_i-1]
-                optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
-                                lower=-1*ramp_down, upper=ramp_up)
+                ramp_up = comp.ramp_rate_up[start_i:end_i]
+                ramp_down = comp.ramp_rate_down[start_i:end_i]
+                if start_i == 0: # The first window will have n-1 ramp points
+                    optProb.addConGroup(f'ramp_{comp.name}', len(time_window)-1,
+                                    lower=-1*ramp_down[:-1], upper=ramp_up[:-1])
+                else:
+                    optProb.addConGroup(f'ramp_{comp.name}', len(time_window),
+                                        lower=-1*ramp_down, upper=ramp_up)
 
                 if comp.stores is not None:
                     min_capacity = comp.min_capacity[start_i:end_i]
