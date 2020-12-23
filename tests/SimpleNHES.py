@@ -18,7 +18,7 @@ load = chickadee.TimeSeries()
 
 def smr_cost(dispatch: dict) -> float:
     # Impose a high ramp cost
-    ramp_cost = 500*sum(abs(np.diff(dispatch[steam])))
+    ramp_cost = 50*sum(abs(np.diff(dispatch[steam])))
     return sum(-1.0 * dispatch[steam] - ramp_cost)
 
 def smr_transfer(data: dict, meta: dict) -> list:
@@ -38,7 +38,7 @@ def tes_cost(dispatch):
     # Simulating high-capital and low-operating costs
     return -1000 - 0.000001*np.sum(dispatch[steam])
 
-tes_capacity = np.ones(n)*9e8
+tes_capacity = np.ones(n)*1e5
 tes_ramp = np.ones(n)*5e5
 tes_guess = np.zeros(n)
 tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp, tes_ramp, steam, tes_transfer,
@@ -84,7 +84,7 @@ elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp, elm_ra
                                 electricity, el_market_transfer, elm_cost,
                                 consumes=electricity, dispatch_type='fixed')
 
-dispatcher = chickadee.PyOptSparse(window_length=10)
+dispatcher = chickadee.PyOptSparse(window_length=20)
 
 # comps = [smr, turbine, elm]
 comps = [smr, tes, turbine, elm]

@@ -16,8 +16,7 @@ from pprint import pformat
 class DispatchState(object):
     '''Modeled after idaholab/HERON NumpyState object'''
     def __init__(self, components: List[PyOptSparseComponent], time: List[float]):
-        s = {
-        }
+        s = {}
 
         for c in components:
             s[c.name] = {}
@@ -88,7 +87,10 @@ class PyOptSparse(Dispatcher):
             cs = [c for c in self.components if resource in c.get_resources()]
             for i, _ in enumerate(time):
                 for c in cs:
-                    err[i] += dispatch_window.get_activity(c, resource, i)
+                    if c.stores:
+                        err[i] += -dispatch_window.get_activity(c, resource, i)
+                    else:
+                        err[i] += dispatch_window.get_activity(c, resource, i)
 
             # FIXME: This simply returns the sum of the errors over time. There
             # are likely much better ways of handling this.
