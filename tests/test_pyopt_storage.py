@@ -6,8 +6,8 @@ import chickadee
 import numpy as np
 import time
 
-n = 40 # number of time points
-time_horizon = np.linspace(0, n , n)
+n = 46 # number of time points
+time_horizon = np.linspace(0, n-1 , n)
 
 steam = chickadee.Resource('steam')
 electricity = chickadee.Resource('electricity')
@@ -28,7 +28,7 @@ def smr_cost(dispatch: dict) -> float:
     in the dispatcher.
     '''
     # Impose a high ramp cost
-    ramp_cost = 50*sum(abs(np.diff(dispatch[steam])))
+    ramp_cost = 5*sum(abs(np.diff(dispatch[steam])))
 
     return sum(-0.1 * dispatch[steam] - ramp_cost)
 
@@ -57,7 +57,8 @@ def tes_cost(dispatch):
 tes_capacity = np.ones(n)*800
 tes_ramp = np.ones(n)*50
 tes_guess = np.zeros(n)
-tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp, tes_ramp, steam, tes_transfer,
+tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp,
+                                    tes_ramp, steam, tes_transfer,
                                     tes_cost, stores=steam, guess=tes_guess)
 
 def turbine_transfer(data, meta):
@@ -110,6 +111,7 @@ sol = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
 end_time = time.time()
 # print('Full optimal dispatch:', optimal_dispatch)
 print('Dispatch time:', end_time - start_time)
+print('Obj Value: ', sol.objval)
 
 # Check to make sure that the ramp rate is never too high
 turbine_ramp = np.diff(sol.dispatch['turbine'][electricity])
@@ -124,6 +126,11 @@ plt.plot(sol.time, sol.dispatch['tes'][steam], label='TES activity')
 plt.plot(sol.time, sol.storage['tes'], label='TES storage level')
 plt.plot(sol.time, tes_capacity*np.ones(len(time_horizon)), label='TES Max Capacity')
 plt.plot(sol.time[:-1], tes_ramp, label='TES ramp')
+ymax = max(sol.storage['tes'])
+plt.vlines([w[0] for w in sol.time_windows], 0,
+           ymax, colors='green', linestyles='--')
+plt.vlines([w[1] for w in sol.time_windows], 0,
+           ymax, colors='blue', linestyles='--')
 plt.legend()
 
 plt.subplot(2,1,2)
@@ -132,5 +139,10 @@ plt.plot(sol.time, sol.dispatch['turbine'][electricity], label='turbine generati
 plt.plot(sol.time, sol.dispatch['el_market'][electricity], label='El market')
 plt.plot(sol.time, balance, label='Electricity balance')
 plt.plot(sol.time[:-1], turbine_ramp, label='turbine ramp')
+ymax = max(sol.dispatch['smr'][steam])
+plt.vlines([w[0] for w in sol.time_windows], 0,
+           ymax, colors='green', linestyles='--')
+plt.vlines([w[1] for w in sol.time_windows], 0,
+           ymax, colors='blue', linestyles='--')
 plt.legend()
 plt.show()

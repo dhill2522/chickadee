@@ -163,6 +163,7 @@ class PyOptSparse(Dispatcher):
         '''
 
         self.start_time = time_lib.time()
+        objval = 0.0
 
         # Step 1) Find the vars: 1 for each component input where dispatch is not fixed
         self.vs = {}  # Min/Max tuples of the various input
@@ -208,10 +209,10 @@ class PyOptSparse(Dispatcher):
             if self.verbose:
                 print('Dispatching window', win_i)
             if win_i == 0:
-                win_dispatch = self._dispatch_window(
+                win_dispatch, win_obj_val = self._dispatch_window(
                     win_horizon, win_start_i, win_end_i)
             else:
-                win_dispatch = self._dispatch_window(
+                win_dispatch, win_obj_val = self._dispatch_window(
                     win_horizon, win_start_i, win_end_i, prev_win_end)
             if self.verbose:
                 print(f'Optimal dispatch for win {win_i}:', win_dispatch)
@@ -243,12 +244,14 @@ class PyOptSparse(Dispatcher):
             # Increment the window indexes
             prev_win_end_i = win_end_i
             win_i += 1
+            objval += win_obj_val
 
             # This results in time windows that match up, but do not overlap
             win_start_i = win_end_i
+            # print(full_dispatch)
 
         solution = Solution(self.time, full_dispatch.state, self.storage_levels,
-                                False, time_windows=time_windows)
+                                False, objval, time_windows=time_windows)
         return solution
 
     def generate_objective(self) -> callable:
@@ -297,7 +300,7 @@ class PyOptSparse(Dispatcher):
             init_dispatch = {}
             for comp in self.components:
                 if comp.dispatch_type != 'fixed':
-                    init_dispatch[comp.name] = comp.guess[start_i:end_i]
+                    init_dispatch[comp.name] = comp.guess[start_i:end_i+1]
 
             # get the initial dispatch so it can be used for scaling
             initdp = self.determine_dispatch(init_dispatch, time_window, start_i, end_i)
@@ -395,7 +398,7 @@ class PyOptSparse(Dispatcher):
         try:
             opt = pyoptsparse.OPT('ipopt')
             sol = opt(optProb, sens='CD')
-            print(sol)
+            # print(sol)
             if self.verbose:
                 print('Dispatch optimization successful')
         except Exception as err:
@@ -413,7 +416,7 @@ class PyOptSparse(Dispatcher):
         win_opt_dispatch = self.determine_dispatch(sol.xStar, time_window, start_i, end_i)
         if self.verbose:
             print('\nReturning the results', time_lib.time() - self.start_time)
-        return win_opt_dispatch
+        return win_opt_dispatch, sol.fStar
 
     def gen_slack_storage_trans(self, res) -> callable:
         def trans(data, meta):
