@@ -132,11 +132,10 @@ class PyOptSparse(Dispatcher):
         disp_comps = [
             c for c in self.components if c.dispatch_type != 'fixed']
         for d in disp_comps:
-            for i in range(len(time)):
-                request = {d.capacity_resource: opt_vars[d.name][i]}
-                bal, self.meta = d.transfer(request, self.meta)
-                for res, value in bal.items():
-                    dispatch.set_activity(d, res, value, i)
+            request = {d.capacity_resource: opt_vars[d.name]}
+            bal, self.meta = d.transfer(request, self.meta)
+            for res, values in bal.items():
+                dispatch.set_activity(d, res, values)
         return dispatch
 
     def _dispatch_pool(self) -> DispatchState:
