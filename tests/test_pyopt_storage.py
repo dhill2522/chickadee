@@ -32,11 +32,20 @@ def smr_cost(dispatch: dict) -> float:
 
     return sum(-0.1 * dispatch[steam] - ramp_cost)
 
-def smr_transfer(data: dict, meta: dict) -> list:
+def smr_transfer(input: list) -> dict:
     '''A component transfer function
-    Uses the exact same format as is used in HERON for compatibility.
+    Uses a different format than is used in other HERON dispatchers. Takes in a
+    list of time-resolved inputs of the capacity resource and returns a dict of
+    arrays. Each dict entry represents the time-resolved response of the other
+    involved resources. If no other resources are involved than an empty dict is
+    returned.
+
+    Note that "meta" is neither passed in nor returned as is done in
+    other HERON dispatchers. This is because it has not been used to this point,
+    but severely limits possible methods of determining the function
+    derivatives.
     '''
-    return data, meta
+    return {}
 
 
 smr_capacity = np.ones(n)*1200
@@ -46,9 +55,16 @@ smr_guess = np.ones(n) * 700
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp,
                     steam, smr_transfer, smr_cost, produces=steam, guess=smr_guess)
 
-def tes_transfer(data, meta):
-
-    return data, meta
+def tes_transfer(input, init_level):
+    '''This is a storage component transfer function. This transfer function
+    works just the same as the others with two significant differences.
+    1) It requires a second argument that is the intial storage level of the
+    component.
+    2) Instead of returning the activities of the other involved
+    resources (there are none for storage components) it returns a time-
+    resolved array of storage levels for the component.'''
+    input[0] += init_level
+    return np.cumsum(input)
 
 def tes_cost(dispatch):
     # Simulating high-capital and low-operating costs
@@ -61,20 +77,11 @@ tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp,
                                     tes_ramp, steam, tes_transfer,
                                     tes_cost, stores=steam, guess=tes_guess)
 
-def turbine_transfer(data, meta):
-    effciency = 0.7  # Just a random guess at a turbine efficiency
-
-    if steam in data:
-        # Determine the electricity output for a given steam input
-        data[electricity] = -1 * effciency * data[steam]
-    elif electricity in data:
-        # Determine the steam input for a given electricity output
-        data[steam] = -1/effciency * data[electricity]
-    else:
-        raise Exception(
-            "Generator Transfer Function: Neither 'electricity' nor 'steam' given")
-
-    return data, meta
+def turbine_transfer(inputs):
+    '''Just using a guesstimated efficiency'''
+    return {
+        electricity: -0.7 * inputs
+    }
 
 def turbine_cost(dispatch):
     return sum(-1 * dispatch[steam])
@@ -88,8 +95,8 @@ turbine = chickadee.PyOptSparseComponent('turbine', turbine_capacity,
                                 produces=electricity, consumes=steam, guess=turbine_guess)
 
 
-def el_market_transfer(data, meta):
-    return data, meta
+def el_market_transfer(inputs: list):
+    return {}
 
 def elm_cost(dispatch):
     return sum(5.0 * dispatch[electricity])

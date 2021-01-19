@@ -113,16 +113,21 @@ class PyOptSparse(Dispatcher):
         return cons
 
     def determine_dispatch(self, opt_vars: dict, time: List[float],
-                            start_i: int, end_i: int) -> DispatchState:
+                            start_i: int, end_i: int, init_store: dict) -> DispatchState:
         '''Determine the dispatch from a given set of optimization
         vars by running the transfer functions. Returns a Numpy dispatch
         object
         :param opt_vars: dict, holder for all the optimization variables
         :param time: list, time horizon to dispatch over
+        :param start_i:
+        :param end_i:
+        :param init_store:
         :returns: DispatchState, dispatch of the system
+        :returns: dict, storage levels of each storage component over time
         '''
         # Initialize the dispatch
         dispatch = DispatchState(self.components, time)
+        store_lvls = {}
         # Dispatch the fixed components
         fixed_comps = [c for c in self.components if c.dispatch_type == 'fixed']
         for f in fixed_comps:
@@ -132,11 +137,14 @@ class PyOptSparse(Dispatcher):
         disp_comps = [
             c for c in self.components if c.dispatch_type != 'fixed']
         for d in disp_comps:
-            request = {d.capacity_resource: opt_vars[d.name]}
-            bal, self.meta = d.transfer(request, self.meta)
-            for res, values in bal.items():
-                dispatch.set_activity(d, res, values)
-        return dispatch
+            if d.stores:
+                store_lvls[d.name] = d.transfer(
+                    opt_vars[d.name], init_store[d.name])
+            else:
+                bal = d.transfer(opt_vars[d.name])
+                for res, values in bal.items():
+                    dispatch.set_activity(d, res, values)
+        return dispatch, store_lvls
 
     def _dispatch_pool(self) -> DispatchState:
         '''Dispatch the given system using a resource-pool method
@@ -207,12 +215,22 @@ class PyOptSparse(Dispatcher):
             win_horizon = self.time[win_start_i:win_end_i]
             if self.verbose:
                 print('Dispatching window', win_i)
+
+            # Assemble the "initial storage levels" for the window
+            init_store = {}
+            storers = [comp for comp in self.components if comp.stores]
+            for storer in storers:
+                if win_start_i == 0:
+                    init_store[storer.name] = storer.storage_init_level
+                else:
+                    init_store[storer.name] = self.storage_levels[storer.name][win_start_i-1]
+
             if win_i == 0:
-                win_dispatch, win_obj_val = self._dispatch_window(
-                    win_horizon, win_start_i, win_end_i)
+                win_dispatch, store_lvls, win_obj_val = self._dispatch_window(
+                    win_horizon, win_start_i, win_end_i, init_store)
             else:
-                win_dispatch, win_obj_val = self._dispatch_window(
-                    win_horizon, win_start_i, win_end_i, prev_win_end)
+                win_dispatch, store_lvls, win_obj_val = self._dispatch_window(
+                    win_horizon, win_start_i, win_end_i, init_store, prev_win_end)
             if self.verbose:
                 print(f'Optimal dispatch for win {win_i}:', win_dispatch)
 
@@ -226,19 +244,10 @@ class PyOptSparse(Dispatcher):
                     prev_win_end[comp.name] = win_dispatch.get_activity(
                         comp, comp.capacity_resource, -1
                     )
-                if comp.stores:
-                    # Get the initial storage level
-                    if win_start_i == 0:
-                        init_level = comp.storage_init_level
-                    else:
-                        init_level = self.storage_levels[comp.name][win_start_i-1]
 
-                    print(comp.name, 'storage init:', init_level)
-                    # Update the storage_levels dict
-                    activity = win_dispatch.get_activity(
-                        comp, comp.capacity_resource)
-                    activity = np.insert(activity, 0, init_level)
-                    self.storage_levels[comp.name][win_start_i:win_end_i] = np.cumsum(activity)[1:]
+                # Update the storage_levels dict
+                if comp.stores:
+                    self.storage_levels[comp.name][win_start_i:win_end_i] = store_lvls[comp.name]
 
             # Increment the window indexes
             prev_win_end_i = win_end_i
@@ -247,8 +256,8 @@ class PyOptSparse(Dispatcher):
 
             # This results in time windows that match up, but do not overlap
             win_start_i = win_end_i
-            # print(full_dispatch)
 
+        # FIXME: Return the total error
         solution = Solution(self.time, full_dispatch.state, self.storage_levels,
                                 False, objval, time_windows=time_windows)
         return solution
@@ -270,12 +279,13 @@ class PyOptSparse(Dispatcher):
                 return obj
             return objective
 
-    def _dispatch_window(self, time_window: List[float],
-                            start_i: int, end_i: int, prev_win_end: dict=None) -> Solution:
+    def _dispatch_window(self, time_window: List[float], start_i: int,
+                        end_i: int, init_store, prev_win_end: dict=None) -> Solution:
         '''Dispatch a time-window using a resource-pool method
         :param time_window: The time window to dispatch the system over
         :param start_i: The time-array index for the start of the window
         :param end_i: The time-array index for the end of the window
+        :param init_store: dict of the initial storage values of the storage components
         :param prev_win_end: dict of the ending values for the previous time window used for consistency constraints
         :returns: DispatchState, the optimal dispatch over the time_window
         '''
@@ -302,7 +312,7 @@ class PyOptSparse(Dispatcher):
                     init_dispatch[comp.name] = comp.guess[start_i:end_i+1]
 
             # get the initial dispatch so it can be used for scaling
-            initdp = self.determine_dispatch(init_dispatch, time_window, start_i, end_i)
+            initdp, _ = self.determine_dispatch(init_dispatch, time_window, start_i, end_i, init_store)
             obj_scale = objective(initdp)
 
         # Figure out the initial storage levels
@@ -324,7 +334,7 @@ class PyOptSparse(Dispatcher):
             :returns: [dict, bool]
             '''
             try:
-                dispatch = self.determine_dispatch(stuff, time_window, start_i, end_i)
+                dispatch, store_lvl = self.determine_dispatch(stuff, time_window, start_i, end_i, init_store)
                 # At this point the dispatch should be fully determined, so assemble the return object
                 things = {}
                 # Dispatch the components to generate the obj val
@@ -338,11 +348,8 @@ class PyOptSparse(Dispatcher):
                         else: # Make sure subsequent windows start from the last point of the previous window
                             things[f'ramp_{comp.name}'] = np.diff(
                                 np.insert(stuff[comp.name], 0, prev_win_end[comp.name]))
-                    if comp.stores is not None:
-                        # Add the initial storage level
-                        storage = np.insert(dispatch.state[comp.name][comp.stores],
-                                                0, storage_levels[comp.name])
-                        things[f'{comp.name}_storage_level'] = np.cumsum(storage)[1:]
+                    if comp.stores:
+                        things[f'{comp.name}_storage_level'] = store_lvl[comp.name]
                 return things, False
             except Exception: # If the input crashes the objective function
                 return {}, True
@@ -367,7 +374,7 @@ class PyOptSparse(Dispatcher):
                     optProb.addConGroup(f'ramp_{comp.name}', len(time_window),
                                         lower=-1*ramp_down, upper=ramp_up)
 
-                if comp.stores is not None:
+                if comp.stores:
                     min_capacity = comp.min_capacity[start_i:end_i]
                     max_capacity = comp.capacity[start_i:end_i]
                     ramp_up = comp.ramp_rate_up[start_i:end_i]
@@ -412,10 +419,11 @@ class PyOptSparse(Dispatcher):
         if self.verbose:
             print('\nCompleted dispatch process\n\n\n')
 
-        win_opt_dispatch = self.determine_dispatch(sol.xStar, time_window, start_i, end_i)
+        win_opt_dispatch, store_lvl = self.determine_dispatch(
+                                        sol.xStar, time_window, start_i, end_i, init_store)
         if self.verbose:
             print('\nReturning the results', time_lib.time() - self.start_time)
-        return win_opt_dispatch, sol.fStar
+        return win_opt_dispatch, store_lvl, sol.fStar
 
     def gen_slack_storage_trans(self, res) -> callable:
         def trans(data, meta):
