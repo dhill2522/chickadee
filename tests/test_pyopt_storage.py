@@ -6,7 +6,7 @@ import chickadee
 import numpy as np
 import time
 
-n = 46 # number of time points
+n = 60 # number of time points
 time_horizon = np.linspace(0, n-1 , n)
 
 steam = chickadee.Resource('steam')
@@ -51,9 +51,11 @@ def smr_transfer(input: list) -> dict:
 smr_capacity = np.ones(n)*1200
 smr_ramp = 600*np.ones(n)
 smr_guess = 100*np.sin(time_horizon) + 300
-smr_guess = np.ones(n) * 700
+smr_capacity = 100*np.sin(time_horizon) + 300
+# smr_guess = np.ones(n) * 700
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp,
-                    steam, smr_transfer, smr_cost, produces=steam, guess=smr_guess)
+                    steam, smr_transfer, smr_cost, produces=steam,
+                    guess=smr_guess, dispatch_type='fixed')
 
 def tes_transfer(input, init_level):
     '''This is a storage component transfer function. This transfer function
@@ -63,8 +65,8 @@ def tes_transfer(input, init_level):
     2) Instead of returning the activities of the other involved
     resources (there are none for storage components) it returns a time-
     resolved array of storage levels for the component.'''
-    input[0] += init_level
-    return np.cumsum(input)
+    tmp = np.insert(input, 0, init_level)
+    return np.cumsum(tmp)[1:]
 
 def tes_cost(dispatch):
     # Simulating high-capital and low-operating costs
@@ -79,9 +81,7 @@ tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp,
 
 def turbine_transfer(inputs):
     '''Just using a guesstimated efficiency'''
-    return {
-        electricity: -0.7 * inputs
-    }
+    return {electricity: 0.7 * inputs}
 
 def turbine_cost(dispatch):
     return sum(-1 * dispatch[steam])
@@ -131,7 +131,7 @@ import matplotlib.pyplot as plt
 plt.subplot(2,1,1)
 plt.plot(sol.time, sol.dispatch['tes'][steam], label='TES activity')
 plt.plot(sol.time, sol.storage['tes'], label='TES storage level')
-plt.plot(sol.time, tes_capacity*np.ones(len(time_horizon)), label='TES Max Capacity')
+# plt.plot(sol.time, tes_capacity*np.ones(len(time_horizon)), label='TES Max Capacity')
 plt.plot(sol.time[:-1], tes_ramp, label='TES ramp')
 ymax = max(sol.storage['tes'])
 plt.vlines([w[0] for w in sol.time_windows], 0,

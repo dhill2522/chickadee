@@ -137,6 +137,7 @@ class PyOptSparse(Dispatcher):
         disp_comps = [
             c for c in self.components if c.dispatch_type != 'fixed']
         for d in disp_comps:
+            dispatch.set_activity(d, d.capacity_resource, opt_vars[d.name])
             if d.stores:
                 store_lvls[d.name] = d.transfer(
                     opt_vars[d.name], init_store[d.name])
@@ -291,16 +292,9 @@ class PyOptSparse(Dispatcher):
         '''
 
         # Step 1) Build the resource pool constraint functions
-        if self.verbose:
-            print('Step 2) Build the resource pool constraints',
-              time_lib.time() - self.start_time)
         pool_cons = self._build_pool_cons()
 
         # Step 2) Set up the objective function and constraint functions
-        if self.verbose:
-            print('Step 4) Assembling the big function',
-              time_lib.time() - self.start_time)
-
         objective = self.generate_objective()
 
         obj_scale = 1.0
@@ -356,15 +350,13 @@ class PyOptSparse(Dispatcher):
         self.objective = optimize_me
 
         # Step 3) Formulate the problem for pyOptSparse
-        if self.verbose:
-            print('Step 5) Setting up pyOptSparse',
-              time_lib.time() - self.start_time)
         optProb = pyoptsparse.Optimization('Dispatch', optimize_me)
         for comp in self.components:
             if comp.dispatch_type != 'fixed':
                 bounds = [bnd[start_i:end_i] for bnd in self.vs[comp.name]]
                 # FIXME: will need to find a way of generating the guess values
                 guess = comp.guess[start_i:end_i]
+                print(comp.name, guess)
                 ramp_up = comp.ramp_rate_up[start_i:end_i]
                 ramp_down = comp.ramp_rate_down[start_i:end_i]
                 if start_i == 0: # The first window will have n-1 ramp points
@@ -398,31 +390,19 @@ class PyOptSparse(Dispatcher):
         optProb.addObj('objective')
 
         # Step 4) Run the optimization
-        if self.verbose:
-            print('Step 6) Running the dispatch optimization',
-              time_lib.time() - self.start_time)
         try:
             opt = pyoptsparse.OPT('ipopt')
             sol = opt(optProb, sens='CD')
-            # print(sol)
-            if self.verbose:
-                print('Dispatch optimization successful')
+            # FIXME: Find a way of returning the constraint errors
+            print(sol)
         except Exception as err:
             print('Dispatch optimization failed:')
             traceback.print_exc()
             raise err
-        if self.verbose:
-            print('Step 6.5) Completed the dispatch optimization',
-                  time_lib.time() - self.start_time)
 
         # Step 5) Set the activities on each component
-        if self.verbose:
-            print('\nCompleted dispatch process\n\n\n')
-
         win_opt_dispatch, store_lvl = self.determine_dispatch(
                                         sol.xStar, time_window, start_i, end_i, init_store)
-        if self.verbose:
-            print('\nReturning the results', time_lib.time() - self.start_time)
         return win_opt_dispatch, store_lvl, sol.fStar
 
     def gen_slack_storage_trans(self, res) -> callable:

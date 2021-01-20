@@ -6,7 +6,7 @@ import chickadee
 import numpy as np
 import time
 
-n = 20 # number of time points
+n = 40 # number of time points
 time_horizon = np.linspace(0, n-1 , n)
 
 steam = chickadee.Resource('steam')
@@ -29,11 +29,8 @@ def smr_cost(dispatch: dict) -> float:
 
     return sum(-0.1 * dispatch[steam] - ramp_cost)
 
-def smr_transfer(data: dict, meta: dict) -> list:
-    '''A component transfer function
-    Uses the exact same format as is used in HERON for compatibility.
-    '''
-    return data, meta
+def smr_transfer(inputs: list) -> list:
+    return {}
 
 
 smr_capacity = np.ones(n)*1200
@@ -42,9 +39,9 @@ smr_guess = np.ones(n) * 500
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp,
                     steam, smr_transfer, smr_cost, produces=steam, guess=smr_guess)
 
-def tes_transfer(data, meta):
-
-    return data, meta
+def tes_transfer(inputs: list, init_store):
+    tmp = np.insert(inputs, 0, init_store)
+    return np.cumsum(tmp)[1:]
 
 def tes_cost(dispatch):
     # Simulating high-capital and low-operating costs
@@ -58,8 +55,8 @@ tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp,
                                     tes_cost, stores=steam, guess=tes_guess)
 
 
-def load_transfer(data, meta):
-    return data, meta
+def load_transfer(inputs: list):
+    return {}
 
 def load_cost(dispatch):
     return sum(5.0 * dispatch[steam])
@@ -72,7 +69,6 @@ load = chickadee.PyOptSparseComponent('load', load_capacity, load_ramp, load_ram
 
 dispatcher = chickadee.PyOptSparse(window_length=20)
 
-# comps = [smr, turbine, elm]
 comps = [smr, tes, load]
 
 start_time = time.time()
