@@ -466,10 +466,8 @@ class PyOptSparse(Dispatcher):
         return self._dispatch_pool()
 
 # ToDo:
-# - Get it to stop printing the annoying "Using option file" comment
 # - Try priming the initial values for generic systems better
 # - Calculate exact derivatives using JAX if possible
-#   - Could use extra meta props to accomplish this
-#   - Could also explicitly disable use of meta in user functions
-# - Integrate storage into the dispatch
-# - Handle infeasible cases clearly
+# - Handle infeasible cases clearly. Raise an error if the constraints are not met.
+# - Need to add a method to catch if user transfer functions provide the right responses
+

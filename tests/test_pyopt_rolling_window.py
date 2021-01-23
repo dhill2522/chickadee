@@ -17,8 +17,8 @@ load = chickadee.TimeSeries()
 def smr_cost(dispatch):
     return sum(-0.001 * dispatch[steam])
 
-def smr_transfer(data, meta):
-    return data, meta
+def smr_transfer(inputs):
+    return {}
 
 
 smr_capacity = np.ones(n)*1200
@@ -27,20 +27,9 @@ smr_guess = 100*np.sin(time_horizon) + 300
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp, steam,
                                 smr_transfer, smr_cost, produces=steam, guess=smr_guess)
 
-def turbine_transfer(data, meta):
+def turbine_transfer(inputs):
     effciency = 0.7  # Just a random guess at a turbine efficiency
-
-    if steam in data:
-        # Determine the electricity output for a given steam input
-        data[electricity] = -1 * effciency * data[steam]
-    elif electricity in data:
-        # Determine the steam input for a given electricity output
-        data[steam] = -1/effciency * data[electricity]
-    else:
-        raise Exception(
-            "Generator Transfer Function: Neither 'electricity' nor 'steam' given")
-
-    return data, meta
+    return {steam: -1/effciency * inputs}
 
 def turbine_cost(dispatch):
     return sum(-1 * dispatch[steam])
@@ -54,8 +43,8 @@ turbine = chickadee.PyOptSparseComponent('turbine', turbine_capacity,
                                 produces=electricity, consumes=steam, guess=turbine_guess)
 
 
-def el_market_transfer(data, meta):
-    return data, meta
+def el_market_transfer(inputs):
+    return {} 
 
 def elm_cost(dispatch):
     return sum(5.0 * dispatch[electricity])
