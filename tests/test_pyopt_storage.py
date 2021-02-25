@@ -6,7 +6,7 @@ import chickadee
 import numpy as np
 import time
 
-n = 60 # number of time points
+n = 100 # number of time points
 time_horizon = np.linspace(0, n-1 , n)
 
 steam = chickadee.Resource('steam')
@@ -54,7 +54,7 @@ smr_guess = 100*np.sin(time_horizon) + 600
 # smr_guess = np.ones(n) * 700
 smr = chickadee.PyOptSparseComponent('smr', smr_capacity, smr_ramp, smr_ramp,
                     steam, smr_transfer, smr_cost, produces=steam,
-                    guess=smr_guess) 
+                    guess=smr_guess)
 
 def tes_transfer(input, init_level):
     '''This is a storage component transfer function. This transfer function
@@ -126,6 +126,9 @@ tes_ramp = np.diff(sol.dispatch['tes'][steam])
 el_balance = sol.dispatch['turbine'][electricity] + \
     sol.dispatch['el_market'][electricity]
 steam_balance = sol.dispatch['smr'][steam] + sol.dispatch['turbine'][steam]
+
+print(len(sol.dispatch['smr'][steam]))
+print(len(sol.time))
 
 import matplotlib.pyplot as plt
 plt.subplot(2,1,1)

@@ -209,8 +209,8 @@ class PyOptSparse(Dispatcher):
             if win_end_i == prev_win_end_i:
                 break
 
-            # if self.verbose:
-            print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
+            if self.verbose:
+                print(f'win: {win_i}, start: {win_start_i}, end: {win_end_i}')
             time_windows.append([win_start_i, win_end_i])
 
             win_horizon = self.time[win_start_i:win_end_i]
@@ -303,7 +303,7 @@ class PyOptSparse(Dispatcher):
             init_dispatch = {}
             for comp in self.components:
                 if comp.dispatch_type != 'fixed':
-                    init_dispatch[comp.name] = comp.guess[start_i:end_i+1]
+                    init_dispatch[comp.name] = comp.guess[start_i:end_i]
 
             # get the initial dispatch so it can be used for scaling
             initdp, _ = self.determine_dispatch(init_dispatch, time_window, start_i, end_i, init_store)
@@ -329,6 +329,7 @@ class PyOptSparse(Dispatcher):
             '''
             try:
                 dispatch, store_lvl = self.determine_dispatch(stuff, time_window, start_i, end_i, init_store)
+                #print(len(dispatch.time), {key: { res: len(d) for res, d in dispatch.state[key].items()}for key in dispatch.state.keys()})
                 # At this point the dispatch should be fully determined, so assemble the return object
                 things = {}
                 # Dispatch the components to generate the obj val
@@ -356,7 +357,7 @@ class PyOptSparse(Dispatcher):
                 bounds = [bnd[start_i:end_i] for bnd in self.vs[comp.name]]
                 # FIXME: will need to find a way of generating the guess values
                 guess = comp.guess[start_i:end_i]
-                print(comp.name, guess)
+                # print(comp.name, guess)
                 ramp_up = comp.ramp_rate_up[start_i:end_i]
                 ramp_down = comp.ramp_rate_down[start_i:end_i]
                 if start_i == 0: # The first window will have n-1 ramp points
@@ -371,8 +372,8 @@ class PyOptSparse(Dispatcher):
                     max_capacity = comp.capacity[start_i:end_i]
                     ramp_up = comp.ramp_rate_up[start_i:end_i]
                     ramp_down = -1*comp.ramp_rate_down[start_i:end_i]
-                    print(f'{comp.name}', comp.stores, min_capacity, max_capacity)
-                    print(ramp_down, ramp_up)
+                    # print(f'{comp.name}', comp.stores, min_capacity, max_capacity)
+                    # print(ramp_down, ramp_up)
                     optProb.addConGroup(f'{comp.name}_storage_level', len(time_window),
                         lower=min_capacity, upper=max_capacity)
                     # Storage components can have negative activities
@@ -394,7 +395,7 @@ class PyOptSparse(Dispatcher):
             opt = pyoptsparse.OPT('ipopt')
             sol = opt(optProb, sens='CD')
             # FIXME: Find a way of returning the constraint errors
-            print(sol)
+            # print(sol)
         except Exception as err:
             print('Dispatch optimization failed:')
             traceback.print_exc()
