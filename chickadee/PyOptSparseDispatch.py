@@ -147,7 +147,7 @@ class PyOptSparse(Dispatcher):
                     dispatch.set_activity(d, res, values)
         return dispatch, store_lvls
 
-    def _dispatch_pool(self) -> DispatchState:
+    def _dispatch_pool(self) -> Solution:
         '''Dispatch the given system using a resource-pool method
         :returns: DispatchState, the optimal dispatch of the system
         :returns: dict, the storage levels of the storage components
@@ -392,10 +392,19 @@ class PyOptSparse(Dispatcher):
 
         # Step 4) Run the optimization
         try:
-            opt = pyoptsparse.OPT('ipopt')
-            sol = opt(optProb, sens='CD')
+            ipopt_options = {
+                'option_file_name': '',
+                'max_iter': 10000,
+                'tol': 1e-5, # This needs to be fairly loose to allow problems to solve
+                'expect_infeasible_problem': 'yes' 
+            }
+            opt = pyoptsparse.pyIPOPT.pyIPOPT.IPOPT(options=ipopt_options)
+            sol = opt(optProb, sens='CDR')
             # FIXME: Find a way of returning the constraint errors
-            # print(sol)
+            print(sol)
+            if sol.optInform['value'] < 0:
+                raise Exception(f"Dispatch optimization failed: {sol.optInform['text']}")
+            print(sol.optInform)
         except Exception as err:
             print('Dispatch optimization failed:')
             traceback.print_exc()

@@ -6,7 +6,7 @@ import chickadee
 import numpy as np
 import time
 
-n = 100 # number of time points
+n = 20 # number of time points
 time_horizon = np.linspace(0, n-1 , n)
 
 steam = chickadee.Resource('steam')
