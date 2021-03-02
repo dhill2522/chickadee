@@ -401,9 +401,10 @@ class PyOptSparse(Dispatcher):
             opt = pyoptsparse.pyIPOPT.pyIPOPT.IPOPT(options=ipopt_options)
             sol = opt(optProb, sens='CDR')
             # FIXME: Find a way of returning the constraint errors
-            print(sol)
+            #print(sol)
             if sol.optInform['value'] < 0:
-                raise Exception(f"Dispatch optimization failed: {sol.optInform['text']}")
+                print(f"Dispatch optimization failed: {sol.optInform['text']}")
+                #raise Exception(f"Dispatch optimization failed: {sol.optInform['text']}")
             print(sol.optInform)
         except Exception as err:
             print('Dispatch optimization failed:')
