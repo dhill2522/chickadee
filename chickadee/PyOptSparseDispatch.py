@@ -308,6 +308,14 @@ class PyOptSparse(Dispatcher):
             # get the initial dispatch so it can be used for scaling
             initdp, _ = self.determine_dispatch(init_dispatch, time_window, start_i, end_i, init_store)
             obj_scale = objective(initdp)
+        
+            # Test using JAX
+            import jax
+            def dobjective(dispatch:DispatchState):
+                dobj = 0.0
+                for c in self.components:
+                    dobj += # add derivative here
+                
 
         # Figure out the initial storage levels
         # if this is the first time window, use the 'storage_init_level' property.
@@ -389,6 +397,7 @@ class PyOptSparse(Dispatcher):
         optProb.addConGroup('resource_balance', len(
             pool_cons), lower=0, upper=0)
         optProb.addObj('objective')
+        
 
         # Step 4) Run the optimization
         try:
