@@ -405,7 +405,8 @@ class PyOptSparse(Dispatcher):
             if sol.optInform['value'] < 0:
                 print(f"Dispatch optimization failed: {sol.optInform['text']}")
                 #raise Exception(f"Dispatch optimization failed: {sol.optInform['text']}")
-            print(sol.optInform)
+                if sol.optInform['value'] != 2:
+                    sol.fStar *= 10000 # Mark as more "expensive"
         except Exception as err:
             print('Dispatch optimization failed:')
             traceback.print_exc()
