@@ -45,6 +45,20 @@ class Component(object):
     def get_resources(self):
         return [t for t in set([*self.produces, self.stores, *self.consumes]) if t]
 
+class GekkoComponent(object):
+    '''This component does not inherit Component. It in only for the Gekko dispatcher.
+
+        The mentality here is to preserve as much flexibility as possible in defining the system component
+        because of this only the economic parameters are collected here. Everything else is assembled in 
+        the model. This allows complex constructions for things like ramp rates, DMAXHI, DMAXLO, and so forth
+        as well as a greatly improved ability to debug the model outside chickadee.
+    '''
+    def __init__(self, name, cap_cost, fixed_om_cost, var_om_cost, transfer):
+        self.name = name
+        self.cap_cost = cap_cost
+        self.fixed_om_cost = fixed_om_cost
+        self.var_om_cost = var_om_cost
+        self.transfer = transfer
 
 class PyOptSparseComponent(Component):
     def __init__(self, name: str, capacity: np.ndarray, ramp_rate_up: np.ndarray, ramp_rate_down: np.ndarray,

@@ -53,5 +53,34 @@ class DispatchState(object):
 
 
 class Gekko(Dispatcher):
-    def __init__()
-    pass
+    def __init__(self, window_length=10):
+        self.name = 'GekkoDispatcher'
+        self._window_length = window_length
+        
+
+    def dispatch(self, components, time):
+        # Note: Using normal PyOptSparseComponents for right now...
+        # Will need to define a component that has economic parameters attached for calculating the LCOE
+        self.components = components
+        self.time = time
+
+        m = GEKKO()
+        # Will run the transfer functions once in order to determine the model
+        for comp in self.components:
+            # Note: we are only expecting one of the functions to actually do anything. That allows 
+            # the model to be defined as cohesively and flexibly as possible. We are expecting that 
+            # single component to effectively define the dynamics of the entire system
+            comp.transfer(m)
+
+        # Will assemble an objective function that calculates the system LCOE
+        m.Obj()
+        m.options.IMODE = 5
+        # FIXME: Will want to make sure this solves local.... :)
+
+        # Will optimize the system dispatch to minimize the system LCOE
+        m.solve()
+        # FIXME: Handle failed runs by raising the right error
+
+        # Return the final dispatch
+        # FIXME: Assemble the final dispatch
+        pass
