@@ -1,7 +1,8 @@
 ''' Implementation of MPC using Chickadee models'''
+from PyOptSparseDispatch import PyOptSparse
 
 
-class ModelPredictiveController(object):
+class MPController(object):
 
     def __init__(self, components, dispatcher, time_horizon, measurement_funcs, 
                  component_name, cv_resource, set_point, pred_len=10):
@@ -17,6 +18,10 @@ class ModelPredictiveController(object):
 
     def _opt_pred(self):
         '''Optimize the model response '''
+	def objective(self):
+		MPC_comp = [x for x.name == component_name in dispatch.components]
+		return np.sum((MPC_comp[0][cv_resource] - set_point)**2)
+	PyOptSparse.dispatch()
         pass
 
 

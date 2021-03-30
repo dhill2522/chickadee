@@ -385,7 +385,6 @@ class PyOptSparse(Dispatcher):
                 else:
                     optProb.addVarGroup(comp.name, len(time_window), 'c',
                                         value=guess, lower=bounds[0], upper=bounds[1])
-
         optProb.addConGroup('resource_balance', len(
             pool_cons), lower=0, upper=0)
         optProb.addObj('objective')
