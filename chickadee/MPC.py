@@ -21,9 +21,8 @@ class MPController(object):
 	def objective(self):
 		MPC_comp = [x for x.name == component_name in dispatch.components]
 		return np.sum((MPC_comp[0][cv_resource] - set_point)**2)
-	PyOptSparse.dispatch()
-        pass
-
+	sol = PyOptSparse.dispatch(self.components, self.time_horizon, self.objective)
+        return sol
 
     def control(self, time_horizon, set_point):
         '''Control a realtime system using the given model
