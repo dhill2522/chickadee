@@ -38,7 +38,7 @@ class MPC(object):
 	    start_time = time.time()
             # Update components with current state
             for j, c in enumerate(self.components):
-                c.ramp_rate = np.delete(c.ramp_rate, 0)
+                c.capacity = np.delete(c.capacity, 0)
                 # Repeat for all arrays that need to be shortened
 		c.capacity.append(self.measure_funcs[j]) # This assumes measure funcs were added in same order as components
 
