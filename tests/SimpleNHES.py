@@ -36,8 +36,8 @@ def smr_cost(dispatch: dict) -> float:
     ramp_cost = 500*sum(abs(np.diff(dispatch[steam])))
     return sum(-1.0 * dispatch[steam] - ramp_cost)
 
-def smr_transfer(data: dict, meta: dict) -> list:
-    return data, meta
+def smr_transfer(data: dict) -> list:
+    return data
 
 
 smr_capacity = np.ones(n)*1280*35
