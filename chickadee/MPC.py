@@ -35,23 +35,26 @@ class MPC(object):
         for _ in time_horizon:
             # Read in current state from measurement functions
             start_time = time.time()
-            # Update components with current state
-        for c in self.components:
-            c.capacity = np.delete(c.capacity, 0)
-            # Repeat for all arrays that need to be shortened
-        np.append(c.capacity, self.measure_funcs[0])
 
             # Run the optimization
-        dispatcher = PyOptSparse(window_length=self.pred_len)
-        print('capacity:', self.components[0].capacity)
-        sol = dispatcher.dispatch(self.components, time_horizon, objective)
+            dispatcher = PyOptSparse(window_length=self.pred_len)
+            print('capacity:', self.components[0].capacity)
+            #FIXME: some how the constraint values are getting deleted
+            sol = dispatcher.dispatch(self.components, time_horizon, objective)
+    
+                # Apply the control step from the optimized dispatch
+            for f in self.control_funcs:
+                f(sol) # FIXME need to pull heater value out 
+    
+            # Update components with current state
+            for c in self.components:
+                c.capacity = np.delete(c.capacity, 0)
+                # Repeat for all arrays that need to be shortened
+            np.append(c.capacity, self.measure_funcs[0])
 
-            # Apply the control step from the optimized dispatch
-        for f in self.control_funcs:
-            f(sol) 
-
+            print(f'time: {_}, T: {a.T1}')
             # Wait the dt time in time history (assumes uniform dt) 
-        end_time = time.time()
-        dt = end_time - start_time
-        dt_time_horizon = time_horizon[0] - time_horizon[1]
-        time.sleep(dt_time_horizon - dt)
+            end_time = time.time()
+            dt = end_time - start_time
+            dt_time_horizon = time_horizon[0] - time_horizon[1]
+            time.sleep(dt_time_horizon - dt)
