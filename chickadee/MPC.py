@@ -14,6 +14,7 @@ class MPC(object):
         self.component_name = component_name
         self.cv_resource = cv_resource
         self.pred_len = pred_len
+        print('capacity init:', self.components[0].capacity)
 
 
     def control(self, time_horizon, set_point):
@@ -35,14 +36,15 @@ class MPC(object):
             # Read in current state from measurement functions
             start_time = time.time()
             # Update components with current state
-            for j, c in enumerate(self.components):
-                c.capacity = np.delete(c.capacity, 0)
-                # Repeat for all arrays that need to be shortened
+        for c in self.components:
+            c.capacity = np.delete(c.capacity, 0)
+            # Repeat for all arrays that need to be shortened
         np.append(c.capacity, self.measure_funcs[0])
 
             # Run the optimization
-        comps = self.components
-        sol = PyOptSparse.dispatch(comps, time_horizon, objective)
+        dispatcher = PyOptSparse(window_length=self.pred_len)
+        print('capacity:', self.components[0].capacity)
+        sol = dispatcher.dispatch(self.components, time_horizon, objective)
 
             # Apply the control step from the optimized dispatch
         for f in self.control_funcs:
