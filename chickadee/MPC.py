@@ -14,7 +14,6 @@ class MPC(object):
         self.component_name = component_name
         self.cv_resource = cv_resource
         self.pred_len = pred_len
-        print('capacity init:', self.components[0].capacity)
 
 
     def control(self, time_horizon, set_point):
@@ -38,26 +37,23 @@ class MPC(object):
 
             # Run the optimization
             dispatcher = PyOptSparse(window_length=self.pred_len)
-            #FIXME: some how the constraint values are getting deleted
             sol = dispatcher.dispatch(self.components, time_horizon, objective)
-            for c in self.components:
-                print(c.name)
-                print(c.ramp_rate_up)
-                print(c.ramp_rate_down)
-    
+   
                 # Apply the control step from the optimized dispatch
             for f in self.control_funcs:
-                f(sol) # FIXME need to pull heater value out 
-    
+                f(sol)    
+
             # Update components with current state
             for c in self.components:
                 c.capacity = np.delete(c.capacity, 0)
                 # Repeat for all arrays that need to be shortened
             np.append(c.capacity, self.measure_funcs[0])
 
-            print(f'time: {_}, T: {a.T1}')
             # Wait the dt time in time history (assumes uniform dt) 
             end_time = time.time()
             dt = end_time - start_time
             dt_time_horizon = time_horizon[0] - time_horizon[1]
+            sleep_time = dt_time_horizon - dt
+            if sleep_time < 0:
+               raise("Warning you have tried to bend the rules of time you need to make your time steps bigger or shorten prediction window")
             time.sleep(dt_time_horizon - dt)
