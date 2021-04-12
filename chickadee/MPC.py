@@ -38,9 +38,12 @@ class MPC(object):
 
             # Run the optimization
             dispatcher = PyOptSparse(window_length=self.pred_len)
-            print('capacity:', self.components[0].capacity)
             #FIXME: some how the constraint values are getting deleted
             sol = dispatcher.dispatch(self.components, time_horizon, objective)
+            for c in self.components:
+                print(c.name)
+                print(c.ramp_rate_up)
+                print(c.ramp_rate_down)
     
                 # Apply the control step from the optimized dispatch
             for f in self.control_funcs:

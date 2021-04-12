@@ -333,7 +333,7 @@ class PyOptSparse(Dispatcher):
                 # At this point the dispatch should be fully determined, so assemble the return object
                 things = {}
                 # Dispatch the components to generate the obj val
-                things['objective'] = objective(dispatch)/obj_scale
+                things['objective'] = objective(dispatch)/obj_scale #FIXME: I'm broken
                 # Run the resource pool constraints
                 things['resource_balance'] = [cons(dispatch) for cons in pool_cons]
                 for comp in self.components:
