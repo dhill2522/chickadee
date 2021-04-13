@@ -35,7 +35,7 @@ def turbine_cost(dispatch):
     return sum(-1 * dispatch[steam])
 
 turbine_capacity = np.ones(n)*1000
-turbine_guess = 100*np.sin(time_horizon) + 500
+turbine_guess = 100*np.sin(time_horizon) + 520
 turbine_ramp = 20*np.ones(n)
 turbine = chickadee.PyOptSparseComponent('turbine', turbine_capacity,
                                 turbine_ramp, turbine_ramp, electricity,

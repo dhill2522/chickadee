@@ -3,37 +3,42 @@ import numpy as np
 import matplotlib.pyplot as plt
 import chickadee
 import time
+import pandas as pd
 
 heat = chickadee.Resource('heat')
 # Questions:
-# 1. Why does this not need sol.time[:9] in line 96
-# 2. Should it be taking [0] or [1] on 20
-# 3. Why isn't it solving
+# 1. 
+# 2. 
+# 3. 
 
+# prep data file
+f = open('TClab_MPC_data.csv', 'w')
+f.write('Time,Tsp,T1,Q1\n')
 
+# define functions to interact with system
 def get_T():  # in K
-    print(a.T1)
-    return a.T1 + 273.15
+    return np.round(a.T1 + 273.15, 2)
 
-def set_Q(sol):
-    print(f"T: {a.T1}, Q: {sol.dispatch['heater'][heat][0]}")
-    a.Q1(sol.dispatch['heater'][heat][0])
+def set_Q(Qval):
+    a.Q1(Qval)
 
-
+# create set point and time history
+sols = []
 pl = 10  # Prediction Length
 n = 600
 t = np.arange(n)*3
-T_sp = np.zeros(n)
+T_sp = np.zeros(n) + 15
 T_sp[10:50] = 50
 T_sp[50:150] = 30
 T_sp[150:300] = 80
 T_sp[300:500] = 60
 T_sp = T_sp + 273.15
 
-ns = 30 # this is to try a shorter time window
+ns = 301 # this is to try a shorter time window
 T_sp = T_sp[:ns]
-t = t[:ns]
+time_horizon = t[:ns]
 
+# Create chickadee model
 def heater_cost(dispatch):
     return 0.001 * sum(dispatch[heat])
 
@@ -51,6 +56,7 @@ def tes_cost(dispatch):
     return sum(dispatch[heat]) 
 
 def tes_transfer(Q, T0):
+    td = 3               # time delay
     Ta = 23.0+273.15     # K
     mass = 4.0/1000.0    # kg
     Cp = 0.5*1000.0      # J/kg-K
@@ -60,10 +66,9 @@ def tes_transfer(Q, T0):
     eps = 0.9            # Emissivity
     sigma = 5.67e-8            # Stefan-Boltzmann
     alpha = .01
-    # Tnew = T0 + 1/(mass*Cp)*(U*A(Ta - T) + sigma*eps*A*(Ta**4 - T**4) + alpha*Q)
     T_stores = []
     for q in Q:
-        Tnew = T0 + 1/(mass*Cp)*(U*A*(Ta - T0) + sigma*eps*A*(Ta**4 - T0**4) + alpha*q)
+        Tnew = T0 + td*1/(mass*Cp)*(U*A*(Ta - T0) + sigma*eps*A*(Ta**4 - T0**4) + alpha*q)
         T_stores.append(Tnew)
         T0 = Tnew
     return T_stores
@@ -71,35 +76,74 @@ def tes_transfer(Q, T0):
 tes_capacity = np.zeros(pl) + 373
 tes_ramp = np.zeros(pl) + 100
 tes_guess = np.zeros(pl) + 320
+T0 = 273+25
 tes = chickadee.PyOptSparseComponent('tes', tes_capacity, tes_ramp, tes_ramp, heat,
                                      tes_transfer, tes_cost, stores=heat
-                                     , guess=tes_guess)
+                                     , guess=tes_guess, storage_init_level=T0)
 comps = [heater, tes]
-measure_funcs = [get_T]
-control_funcs = [set_Q]
 
-# a = tclab.TCLab()
-# MPC = chickadee.MPC(comps, measure_funcs, control_funcs, "tes", heat, pred_len = pl)
-# sol = MPC.control(t, T_sp)
+# Creat MPC
+
+# connect to hardware and create dispatcher
+a = tclab.TCLab()
+dispatcher = chickadee.PyOptSparse(window_length=pl)
+
+# MPC Loop
+for i in range(len(time_horizon) - pl):
+    ie = pl+i
+    start_time = time.time() 
+
+    T0 = get_T() # get current temperature
+    comps[1].storage_init_level=T0
+
+    # create custom objective with set point
+    def objective(dispatch):
+        tes_store = tes_transfer(dispatch.state['heater'][heat], T0)
+        return np.sum((tes_store - T_sp[i:ie])**2)
+    
+    # run optimization on 1 time window
+    sol = dispatcher.dispatch(comps, t[:pl], external_obj_func=objective)
+    sols.append(sol)
+    # output first solution heater value to hardware
+    Qval = np.round(sol.dispatch['heater'][heat][0],2) 
+    set_Q(Qval)   
+    
+    # print and output the values
+    print(f'Time: {time_horizon[i]}s, Tsp: {T_sp[i]} K, T: {T0} K, Q: {Qval}')
+    f.write(f'{time_horizon[i]},{T_sp[i]},{T0},{Qval}\n')
+
+    # wait the rest of the time between time points
+    end_time = time.time()
+    dt = end_time - start_time
+    dt_time_horizon = time_horizon[1] - time_horizon[0]
+    time.sleep(dt_time_horizon - dt) 
+
+a.Q1(0)
+a.Q2(0)
+a.close()
+f.close()   
+print('Disconecting TClab')
+
+plt.figure(1)
+data = pd.read_csv('TClab_MPC_data.csv')
+plt.plot(time_horizon[:-10]/3, data['T1'].values, '.', label='actual')
+plt.plot(time_horizon/3, T_sp, label='setpoint')
+plt.legend()
+
+# plt.figure(2)
+# si = 0
+# plt.subplot(2,1,1)
+# plt.plot(sol[si].time/3, sol[si].dispatch['tes'][heat], label='TES activity')
+# plt.plot(sol[si].time/3, sol[si].storage['tes'], label='TES storage level')
+# plt.plot(sol[si].time/3, T_sp[:pl], label='TES setpoint')
+# ymax = max(sol[si].storage['tes'])
+# plt.vlines([w[0] for w in sol[si].time_windows], 0, ymax, colors='green', linestyles='--')
+# plt.vlines([w[1] for w in sol[si].time_windows], 0, ymax, colors='blue', linestyles='--')
+# plt.legend()
 # 
-# a.Q1(0)
-# a.Q2(0)
-# a.close()
-# print('Disconecting TClab')
-
-dispatcher = chickadee.PyOptSparse()
-sol = dispatcher.dispatch(comps, t[:pl], t[:pl])
-
-plt.subplot(2,1,1)
-plt.plot(sol.time, sol.dispatch['tes'][heat], label='TES activity')
-plt.plot(sol.time, sol.storage['tes'], label='TES storage level')
-plt.plot(sol.time, tes_ramp, label='TES ramp')
-ymax = max(sol.storage['tes'])
-plt.vlines([w[0] for w in sol.time_windows], 0, ymax, colors='green', linestyles='--')
-plt.vlines([w[1] for w in sol.time_windows], 0, ymax, colors='blue', linestyles='--')
-plt.legend()
-
-plt.subplot(2,1,2)
-plt.plot(sol.time, sol.dispatch['heater'][heat], label='heater')
-plt.legend()
+# plt.subplot(2,1,2)
+# plt.plot(sol[si].time, sol[si].dispatch['heater'][heat], label='heater')
+# plt.legend()
 plt.show()
+
+
