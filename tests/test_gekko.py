@@ -1,50 +1,31 @@
 import chickadee
-import gekko
+from gekko import GEKKO
 import numpy as np
 import matplotlib.pyplot as plt
 
-steam = chickadee.Resource('steam')
-electricity = chickadee.Resource('electricity')
+m = GEKKO(remote=False)
 
-load = chickadee.TimeSeries()
+m.time = np.linspace(0, 1, 101)
 
-def smr_transfer(m: gekko.GEKKO):
-    npp_cap = 1280 * 20     # MW, capacity of South Texas Nuclear Generatingstation
-    npp_ramprate = 0.01     # Max ramping as a percent of total capacity
-    npp_gen = m.MV(value=.8*npp_cap, lb=0.2*npp_cap, ub=npp_cap)
-    npp_gen.STATUS = 1
-    npp_gen.DMAX = npp_ramprate*npp_cap
-    npp_gen.DCOST = 10
-    m.npp_gen = npp_gen
-    return m
+load = m.Param(np.cos(2*np.pi*m.time)+3)
+gen = m.Var(load[0])
 
-smr = chickadee.Component('smr', 600, steam, smr_transfer, -1.0,
-                          produces=steam, dispatch_type='independent')
+err = m.CV(0)
+err.STATUS = 1
+err.SPHI = err.SPLO = 0
+err.WSPHI = 1000
+err.WSPLO = 1
 
-tes = chickadee.Component('tes', )
+dgen = m.MV(0, lb=-1, ub=1)
+dgen.STATUS = 1
 
-def turbine_transfer(model: gekko.GEKKO):
-    return model
+m.Equations([gen.dt() == dgen,  err == load-gen])
+m.options.IMODE = 6
 
+# cap_comps = {
+#     gen: {'initial': 1, 'min': 0, 'max': 100}
+# }
 
-turbine = chickadee.Component('turbine', 1000, electricity, turbine_transfer, -1.0,
-                              produces=electricity, consumes=steam)
+dispatcher = chickadee.GekkoDispatcher(m, 10)
 
-
-def el_market_transfer(model):
-    return model
-
-
-el_market = chickadee.Component('el_market', 1e10, electricity, el_market_transfer, 5.0,
-                                consumes=electricity, dispatch_type='fixed')
-
-dispatcher = chickadee.PyOptSparse(window_length=5)
-
-comps = [smr, turbine, el_market]
-time_horizon = np.linspace(0, 1, 10)
-optimal_dispatch = dispatcher.dispatch(comps, time_horizon, [load])
-print(optimal_dispatch)
-
-plt.plot(optimal_dispatch.state['time'],
-         optimal_dispatch.state['turbine'][electricity])
-plt.show()
+windows = dispatcher.dispatch()

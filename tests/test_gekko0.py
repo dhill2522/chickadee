@@ -35,7 +35,7 @@ def adjust_window(original_model, start, end, prev_win=None):
 
     # Create the new model
     model = copy.deepcopy(original_model)
-    model._model_name = original_model._model_name + r'_{win}_{start}_{end}'
+    model._model_name = original_model._model_name + f'_win_{start}_{end}'
     model.time = original_model.time[start:end]
 
     # Adjust the time series variables and parameters

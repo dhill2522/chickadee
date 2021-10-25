@@ -3,7 +3,7 @@ from .Component import PyOptSparseComponent
 from .TimeSeries import TimeSeries
 from .Solution import Solution
 
-import pyoptsparse
+# Don't import pyoptsparse here as Gekko users may not want to install it
 import numpy as np
 import sys
 import os
@@ -59,6 +59,14 @@ class PyOptSparse(Dispatcher):
     slack_storage_added = False # In case slack storage is added in a loop
 
     def __init__(self, window_length=10):
+        try:
+            # Import this here, so it is not loaded unless the pyOptSparse
+            # dispatcher is actually being used. Allows using Chickadee with
+            # Gekko without the need to install pyOptSparse
+            import pyoptsparse
+        except:
+            print('Error importing pyOptSparse. This module must be installed when the pyOpySparse dispatcher is used.')
+
         self.name = 'PyOptSparseDispatcher'
         self._window_length = window_length
 
@@ -395,7 +403,7 @@ class PyOptSparse(Dispatcher):
                 'option_file_name': '',
                 'max_iter': 10000,
                 'tol': 1e-5, # This needs to be fairly loose to allow problems to solve
-                'expect_infeasible_problem': 'yes' 
+                'expect_infeasible_problem': 'yes'
             }
             opt = pyoptsparse.pyIPOPT.pyIPOPT.IPOPT(options=ipopt_options)
             sol = opt(optProb, sens='CDR')
@@ -481,4 +489,3 @@ class PyOptSparse(Dispatcher):
 # - Calculate exact derivatives using JAX if possible
 # - Handle infeasible cases clearly. Raise an error if the constraints are not met.
 # - Need to add a method to catch if user transfer functions provide the right responses
-
