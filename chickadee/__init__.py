@@ -1,5 +1,5 @@
-from .Component import Component, PyOptSparseComponent
+from .Component import PyOptSparseComponent, GekkoComponent
 from .Resource import Resource
-from .Dispatcher import GekkoDispatcher
 from .TimeSeries import TimeSeries
 from .PyOptSparseDispatch import PyOptSparse, DispatchState
+from .GekkoDispatch import Gekko

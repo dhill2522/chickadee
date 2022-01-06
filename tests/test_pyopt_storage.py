@@ -6,7 +6,7 @@ import chickadee
 import numpy as np
 import time
 
-n = 20 # number of time points
+n = 60 # number of time points
 time_horizon = np.linspace(0, n-1 , n)
 
 steam = chickadee.Resource('steam')
@@ -107,13 +107,13 @@ elm = chickadee.PyOptSparseComponent('el_market', elm_capacity, elm_ramp, elm_ra
                                 electricity, el_market_transfer, elm_cost,
                                 consumes=electricity, dispatch_type='fixed')
 
-dispatcher = chickadee.PyOptSparse(window_length=20)
+dispatcher = chickadee.PyOptSparse(window_length=10)
 
 # comps = [smr, turbine, elm]
 comps = [smr, tes, turbine, elm]
 
 start_time = time.time()
-sol = dispatcher.dispatch(comps, time_horizon, [load], verbose=False)
+sol = dispatcher.dispatch(comps, time_horizon, verbose=False)
 end_time = time.time()
 # print('Full optimal dispatch:', optimal_dispatch)
 print('Dispatch time:', end_time - start_time)
