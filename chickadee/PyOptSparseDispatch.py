@@ -396,15 +396,16 @@ class PyOptSparse(Dispatcher):
                 'option_file_name': '',
                 'max_iter': 10000,
                 'tol': 1e-5, # This needs to be fairly loose to allow problems to solve
-                'expect_infeasible_problem': 'yes' 
+                'expect_infeasible_problem': 'yes'
             }
             opt = pyoptsparse.pyIPOPT.pyIPOPT.IPOPT(options=ipopt_options)
             sol = opt(optProb, sens='CDR')
             # FIXME: Find a way of returning the constraint errors
             #print(sol)
-            if sol.optInform['value'] < 0:
-                print(f"Dispatch optimization failed: {sol.optInform['text']}")
-                #raise Exception(f"Dispatch optimization failed: {sol.optInform['text']}")
+
+            if sol.optInform['value'] > 0:
+                print(f"Dispatch optimization failed: ({sol.optInform['value']}) {sol.optInform['text']}")
+            #raise Exception(f"Dispatch optimization failed: {sol.optInform['text']}")
                 if sol.optInform['value'] != 2:
                     sol.fStar *= 10000 # Mark as more "expensive"
         except Exception as err:
