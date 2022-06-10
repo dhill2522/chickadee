@@ -4,6 +4,7 @@ from .TimeSeries import TimeSeries
 from .Solution import Solution
 
 # Don't import pyoptsparse here as Gekko users may not want to install it
+import pyoptsparse
 import numpy as np
 import sys
 import os
@@ -401,7 +402,7 @@ class PyOptSparse(Dispatcher):
         try:
             ipopt_options = {
                 'option_file_name': '',
-                'max_iter': 10000,
+                'max_iter': 500,
                 'tol': 1e-5, # This needs to be fairly loose to allow problems to solve
                 'expect_infeasible_problem': 'yes'
             }
